@@ -1,0 +1,16 @@
+# Segredos e dados locais
+.env
+whatsapp.db*
+firmware/**/secrets.h
+
+# Binários e artefatos de build
+/pingzap
+*.exe
+*.test
+*.out
+firmware/**/build/
+
+# IDEs e sistema
+.idea/
+.vscode/
+.DS_Store
