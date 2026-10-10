@@ -1,0 +1,13 @@
+services:
+  pingzap:
+    build: .
+    image: pingzap
+    container_name: pingzap
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Sobrepõe o .env: dentro do container a sessão fica sempre em /data.
+      PINGZAP_WHATSAPP_DB: "file:/data/whatsapp.db?_foreign_keys=on"
+    volumes:
+      # Sessão do WhatsApp; apague ./data/whatsapp.db para parear de novo.
+      - ./data:/data

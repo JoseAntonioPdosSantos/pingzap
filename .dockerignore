@@ -1,0 +1,11 @@
+.git
+.idea
+.vscode
+.env
+data
+whatsapp.db*
+firmware
+docs
+*.md
+Dockerfile
+docker-compose.yml
