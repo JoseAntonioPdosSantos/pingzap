@@ -43,6 +43,11 @@ unsigned long lastMsgTime = 0;
 const long interval = 5000; // Send data every 5 seconds
 
 #define LED_PIN 2 // Onboard LED
+#define BUZZER_PIN 4 // D4 -> buzzer (+); buzzer (-) -> GND
+
+// Passive buzzer: tone frequency in Hz. Set to 0 for an active buzzer, which
+// only needs the pin driven HIGH.
+const unsigned int BUZZER_FREQ = 2000;
 
 // Alert blink (non-blocking)
 bool alertActive = false;
@@ -50,6 +55,23 @@ unsigned long alertStart = 0;
 unsigned long lastBlink = 0;
 const unsigned long ALERT_DURATION = 0;    // ms; 0 = blink until "OFF" arrives
 const unsigned long BLINK_INTERVAL = 150;  // fast blink = alert
+
+// Connection signal (non-blocking): blinks when WiFi + broker are up
+int connectTogglesLeft = 0;
+unsigned long lastConnectBlink = 0;
+const int CONNECT_BLINKS = 3;
+const unsigned long CONNECT_BLINK_INTERVAL = 150; // ms on, then ms off
+
+// Beeps along with the LED while the alert is active
+void setBuzzer(bool on) {
+  if (BUZZER_FREQ == 0) {
+    digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
+  } else if (on) {
+    tone(BUZZER_PIN, BUZZER_FREQ);
+  } else {
+    noTone(BUZZER_PIN);
+  }
+}
 
 // ==========================================
 // 3. SETUP WIFI
@@ -94,14 +116,17 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if (String(topic) == topic_command) {
     if (message == "ON") {
       alertActive = true;
+      connectTogglesLeft = 0; // the alert takes over the LED
       alertStart = millis();
       lastBlink = alertStart;
       digitalWrite(LED_PIN, HIGH);
+      setBuzzer(true);
       // Feedback: Publish new state immediately
       client.publish(topic_telemetry, "{\"led\": \"ON\"}"); 
     } else if (message == "OFF") {
       alertActive = false; // cancel alert
       digitalWrite(LED_PIN, LOW);
+      setBuzzer(false);
       client.publish(topic_telemetry, "{\"led\": \"OFF\"}");
     }
   }
@@ -127,6 +152,13 @@ void reconnect() {
       
       // Resubscribe to command topics
       client.subscribe(topic_command);
+
+      // Signal the successful connection, unless an alert owns the LED
+      if (!alertActive) {
+        digitalWrite(LED_PIN, HIGH);
+        lastConnectBlink = millis();
+        connectTogglesLeft = CONNECT_BLINKS * 2 - 1; // ends with the LED off
+      }
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -142,13 +174,14 @@ void reconnect() {
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
   
   setup_wifi();
   
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
-
-  digitalWrite(LED_PIN, HIGH);
 }
 
 // ==========================================
@@ -167,10 +200,20 @@ void loop() {
     if (ALERT_DURATION > 0 && t - alertStart >= ALERT_DURATION) {
       alertActive = false;
       digitalWrite(LED_PIN, LOW); // timed out without an "OFF"
+      setBuzzer(false);
       client.publish(topic_telemetry, "{\"led\": \"OFF\"}");
     } else if (t - lastBlink >= BLINK_INTERVAL) {
       lastBlink = t;
       digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      setBuzzer(digitalRead(LED_PIN));
+    }
+  } else if (connectTogglesLeft > 0) {
+    // --- Connection blink handler ---
+    unsigned long t = millis();
+    if (t - lastConnectBlink >= CONNECT_BLINK_INTERVAL) {
+      lastConnectBlink = t;
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      connectTogglesLeft--;
     }
   }
 
