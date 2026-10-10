@@ -189,6 +189,12 @@ cp firmware/pingzap/secrets_example.h firmware/pingzap/secrets.h
 Depois abra a pasta `firmware/pingzap` na Arduino IDE (a pasta e o `.ino`
 precisam ter o mesmo nome) e grave na placa.
 
+### Buzzer
+
+Um buzzer apita junto com o LED enquanto o alerta está ativo. Ligue o terminal
+positivo no `D4` (GPIO 4) e o outro no `GND`. O sketch aciona um buzzer passivo
+com um tom de 2 kHz; para um buzzer ativo, defina `BUZZER_FREQ` como `0`.
+
 ### Simulador
 
 Sem a placa em mãos? O firmware está disponível como uma

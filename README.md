@@ -188,6 +188,12 @@ cp firmware/pingzap/secrets_example.h firmware/pingzap/secrets.h
 Then open the `firmware/pingzap` folder in the Arduino IDE (the folder and the
 `.ino` file must share the same name) and upload it to the board.
 
+### Buzzer
+
+A buzzer beeps along with the LED while the alert is active. Wire its positive
+leg to `D4` (GPIO 4) and the other leg to `GND`. The sketch drives a passive
+buzzer with a 2 kHz tone; for an active buzzer, set `BUZZER_FREQ` to `0`.
+
 ### Simulator
 
 No board at hand? The firmware is available as a
