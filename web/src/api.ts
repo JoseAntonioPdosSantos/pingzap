@@ -20,6 +20,7 @@ export type Target = { kind: TargetKind; value: string; label: string }
 
 export type FlowOption = {
   label: string
+  shortcut?: string
   command: string
   confirm: string
   next_state: string

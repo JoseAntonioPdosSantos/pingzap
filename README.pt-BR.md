@@ -55,6 +55,11 @@ devem usar.
     **tentativas** do fluxo (0 = sem limite);
   - **mudar o estado** quando a confirmação é `1`, ou de imediato se não houver
     confirmação.
+- Uma opção pode ter um **atalho** (ex.: `/abrir`, `/fechar`) que a executa
+  direto, sem passar pelo menu, seguindo a mesma confirmação, tentativas e
+  lembretes. O atalho só vale no estado em que a opção existe: `/abrir` com o
+  portão já aberto responde com o menu atual. O menu mostra o atalho ao lado de
+  cada opção.
 - Uma opção sem comando só muda o estado. É assim que se informa que o portão
   foi aberto ou fechado por fora (pelo controle). O estado também pode ser
   ajustado na página **Bots**.

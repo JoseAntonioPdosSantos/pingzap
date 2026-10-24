@@ -45,6 +45,9 @@ type State struct {
 
 type Option struct {
 	Label string `json:"label"`
+	// Shortcut runs the option straight away when typed (e.g. "/abrir"),
+	// without going through the menu. Empty means menu only.
+	Shortcut string `json:"shortcut,omitempty"`
 	// Command is the payload published to the device; empty only records the
 	// new state (e.g. "the gate was closed with the remote").
 	Command string `json:"command"`
@@ -106,7 +109,7 @@ func GateTemplate() Flow {
 				Name: "Fechado",
 				Menu: "O portão está *fechado*.",
 				Options: []Option{
-					{Label: "Abrir o portão", Command: "PULSE", Confirm: "O portão abriu?", NextState: "aberto", Reply: "Portão aberto. Envie /menu quando quiser fechá-lo."},
+					{Label: "Abrir o portão", Shortcut: "/abrir", Command: "PULSE", Confirm: "O portão abriu?", NextState: "aberto", Reply: "Portão aberto. Envie /menu quando quiser fechá-lo."},
 					{Label: "Informar que o portão foi aberto pelo controle", NextState: "aberto", Reply: "Ok, registrei o portão como aberto."},
 				},
 			},
@@ -115,7 +118,7 @@ func GateTemplate() Flow {
 				Name: "Aberto",
 				Menu: "O portão está *aberto*.",
 				Options: []Option{
-					{Label: "Fechar o portão", Command: "PULSE", Confirm: "O portão fechou?", NextState: "fechado", Reply: "Portão fechado."},
+					{Label: "Fechar o portão", Shortcut: "/fechar", Command: "PULSE", Confirm: "O portão fechou?", NextState: "fechado", Reply: "Portão fechado."},
 					{Label: "Informar que o portão foi fechado pelo controle", NextState: "fechado", Reply: "Ok, registrei o portão como fechado."},
 				},
 			},
@@ -167,6 +170,31 @@ func (f Flow) Validate() error {
 			if o.Confirm != "" && o.Command == "" {
 				return fmt.Errorf("a opção %q tem confirmação mas não envia comando", o.Label)
 			}
+			if err := f.validateShortcut(s, i); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateShortcut checks an option's shortcut: a single word starting with
+// "/", not clashing with the menu commands or another option of the same
+// state. The same shortcut may appear in different states.
+func (f Flow) validateShortcut(s State, index int) error {
+	o := s.Options[index]
+	if o.Shortcut == "" {
+		return nil
+	}
+	if !strings.HasPrefix(o.Shortcut, "/") || len(o.Shortcut) < 2 || strings.ContainsAny(o.Shortcut, " \t\n") {
+		return fmt.Errorf("o atalho %q da opção %q precisa começar com / e não ter espaços", o.Shortcut, o.Label)
+	}
+	if f.isMenuCommand(o.Shortcut) {
+		return fmt.Errorf("o atalho %q é igual a um comando de menu", o.Shortcut)
+	}
+	for j, other := range s.Options {
+		if j != index && strings.EqualFold(other.Shortcut, o.Shortcut) {
+			return fmt.Errorf("o atalho %q se repete no estado %q", o.Shortcut, s.Name)
 		}
 	}
 	return nil
@@ -207,6 +235,9 @@ func (f Flow) handle(current string, c Conversation, text string, now time.Time)
 
 	if f.isMenuCommand(text) {
 		return f.showMenu(state), true
+	}
+	if r, ok := f.shortcut(state, text, now); ok {
+		return r, true
 	}
 
 	switch c.Step {
@@ -303,6 +334,30 @@ func (f Flow) menuHint() string {
 	return f.StartCommand
 }
 
+// shortcut runs the option of the current state whose shortcut is text. A
+// shortcut that only exists in another state (e.g. /abrir with the gate
+// already open) is answered with the current menu instead.
+func (f Flow) shortcut(state State, text string, now time.Time) (Result, bool) {
+	if !strings.HasPrefix(text, "/") {
+		return Result{}, false
+	}
+	for i, o := range state.Options {
+		if o.Shortcut != "" && strings.EqualFold(o.Shortcut, text) {
+			return f.choose(state, i, now), true
+		}
+	}
+	for _, s := range f.States {
+		for _, o := range s.Options {
+			if o.Shortcut != "" && strings.EqualFold(o.Shortcut, text) {
+				r := f.showMenu(state)
+				r.Replies[0] = fmt.Sprintf("%s não está disponível agora (estado atual: %s).\n\n%s", text, state.Name, r.Replies[0])
+				return r, true
+			}
+		}
+	}
+	return Result{}, false
+}
+
 func (f Flow) showMenu(s State) Result {
 	var b strings.Builder
 	if s.Menu != "" {
@@ -312,6 +367,9 @@ func (f Flow) showMenu(s State) Result {
 	b.WriteString("Digite o número da opção:")
 	for i, o := range s.Options {
 		fmt.Fprintf(&b, "\n*%d* - %s", i+1, o.Label)
+		if o.Shortcut != "" {
+			fmt.Fprintf(&b, " (%s)", o.Shortcut)
+		}
 	}
 	return Result{
 		Replies:      []string{b.String()},

@@ -17,7 +17,7 @@ import {
 
 const newId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
-const emptyOption = (): FlowOption => ({ label: '', command: '', confirm: '', next_state: '', reply: '' })
+const emptyOption = (): FlowOption => ({ label: '', shortcut: '', command: '', confirm: '', next_state: '', reply: '' })
 
 const blankFlow = (): Flow => ({
   start_command: '/start',
@@ -459,10 +459,21 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
                   )}
                 </span>
               </legend>
-              <label>
-                Texto da opção
-                <input value={o.label} onChange={(e) => setOption(i, { ...o, label: e.target.value })} required />
-              </label>
+              <div className="inline">
+                <label>
+                  Texto da opção
+                  <input value={o.label} onChange={(e) => setOption(i, { ...o, label: e.target.value })} required />
+                </label>
+                <label>
+                  Atalho
+                  <input
+                    value={o.shortcut ?? ''}
+                    placeholder="ex.: /abrir"
+                    onChange={(e) => setOption(i, { ...o, shortcut: e.target.value.trim() })}
+                  />
+                  <small className="muted">Executa a opção direto, sem passar pelo menu.</small>
+                </label>
+              </div>
               <div className="inline">
                 <label>
                   Comando MQTT
@@ -519,7 +530,7 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
 // MenuPreview shows the message the bot sends for this state, as built by
 // the server (internal/flow).
 function MenuPreview({ state }: { state: FlowState }) {
-  const lines = state.options.map((o, i) => `*${i + 1}* - ${o.label || '…'}`)
+  const lines = state.options.map((o, i) => `*${i + 1}* - ${o.label || '…'}${o.shortcut ? ` (${o.shortcut})` : ''}`)
   const text = `${state.menu ? state.menu + '\n\n' : ''}Digite o número da opção:\n${lines.join('\n')}`
   return (
     <div className="preview">

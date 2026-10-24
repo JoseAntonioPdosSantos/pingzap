@@ -194,3 +194,55 @@ func TestAlarmDisabled(t *testing.T) {
 		t.Error("accepted an alarm without a command")
 	}
 }
+
+func TestShortcuts(t *testing.T) {
+	f := GateTemplate()
+
+	// /abrir runs the option directly and follows the same confirmation flow.
+	r, ok := f.Handle("fechado", Conversation{}, "/ABRIR", t0)
+	if !ok || pub(r) != "PULSE" || r.Conversation.Step != StepConfirm || !strings.Contains(r.Replies[0], "O portão abriu?") {
+		t.Fatalf("/abrir = %+v, %v", r, ok)
+	}
+	r, _ = f.Handle("fechado", r.Conversation, "2", t0)
+	if pub(r) != "PULSE" || r.Conversation.Attempts != 2 {
+		t.Fatalf("no after /abrir = %+v", r)
+	}
+	r, _ = f.Handle("fechado", r.Conversation, "1", t0)
+	if r.NewState != "aberto" {
+		t.Fatalf("yes after /abrir = %+v", r)
+	}
+
+	// With the gate open, /abrir is not available but /fechar is.
+	r, _ = f.Handle("aberto", Conversation{}, "/abrir", t0)
+	if pub(r) != "" || !strings.HasPrefix(r.Replies[0], "/abrir não está disponível agora (estado atual: Aberto)") {
+		t.Fatalf("/abrir when open = %+v", r)
+	}
+	r, _ = f.Handle("aberto", Conversation{}, "/fechar", t0)
+	if pub(r) != "PULSE" || !strings.Contains(r.Replies[0], "O portão fechou?") {
+		t.Fatalf("/fechar = %+v", r)
+	}
+
+	// The menu lists the shortcuts; unknown commands are still ignored.
+	r, _ = f.Handle("fechado", Conversation{}, "/menu", t0)
+	if !strings.Contains(r.Replies[0], "*1* - Abrir o portão (/abrir)") {
+		t.Fatalf("menu = %q", r.Replies[0])
+	}
+	if _, ok := f.Handle("fechado", Conversation{}, "/outro", t0); ok {
+		t.Fatal("handled an unknown command")
+	}
+}
+
+func TestShortcutValidation(t *testing.T) {
+	for _, bad := range []string{"abrir", "/ab rir", "/menu", "/"} {
+		f := GateTemplate()
+		f.States[0].Options[0].Shortcut = bad
+		if f.Validate() == nil {
+			t.Errorf("accepted shortcut %q", bad)
+		}
+	}
+	f := GateTemplate()
+	f.States[0].Options[1].Shortcut = "/abrir"
+	if f.Validate() == nil {
+		t.Error("accepted a repeated shortcut in the same state")
+	}
+}

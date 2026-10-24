@@ -57,6 +57,11 @@ template ships in Portuguese.
     limit (0 = unlimited);
   - **change the state** when the confirmation is `1`, or right away when
     there is no confirmation.
+- An option may have a **shortcut** (e.g. `/abrir`, `/fechar`) that runs it
+  straight away, skipping the menu, with the same confirmation, attempts and
+  reminders. A shortcut only works in the state where its option exists:
+  `/abrir` with the gate already open answers with the current menu. The menu
+  shows each option's shortcut.
 - An option without a command only changes the state. That is how to report
   the gate was opened or closed some other way (with the remote). The state
   can also be set on the **Bots** page.
