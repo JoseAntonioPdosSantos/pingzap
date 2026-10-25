@@ -21,3 +21,6 @@ internal/web/dist/*
 .idea/
 .vscode/
 .DS_Store
+
+# Python (gerador da placa)
+__pycache__/

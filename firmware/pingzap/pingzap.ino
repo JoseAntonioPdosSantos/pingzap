@@ -8,18 +8,49 @@
  *   always with the same JSON fields (see publishTelemetry);
  * - reports online / offline on the status topic (LWT, retained);
  * - blinks the LED 3 times whenever it connects to the WiFi.
+ *
+ * WiFi and server settings are not fixed in the code: when the board finds no
+ * known network it opens its own network "pingzap-XXXX" with a setup page
+ * (WiFiManager), where you pick the WiFi and fill in the broker, the pingzap
+ * API and the device token. Holding the BOOT button for 3 s opens the same
+ * page at any time. The settings are kept in flash.
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
+#include <WiFiManager.h>
 
-// WiFi credentials (ssid / password), the broker address (mqtt_server), the
-// MQTT login (mqtt_user / mqtt_pass) and the pingzap API address and device
-// token (api_url / device_token) live in secrets.h, which is not versioned.
-// Copy secrets_example.h to secrets.h and fill it in.
+// Defaults for the setup page (mqtt_server, mqtt_user, mqtt_pass, api_url,
+// device_token) and its password (PORTAL_PASSWORD) live in secrets.h, which
+// is not versioned. Copy secrets_example.h to secrets.h and fill it in.
 #include "secrets.h"
+
+// Password of the setup network; at least 8 characters.
+#ifndef PORTAL_PASSWORD
+#define PORTAL_PASSWORD "pingzap123"
+#endif
+
+// Settings saved by the setup page; the values from secrets.h are used until
+// the page saves something.
+struct Settings {
+  String mqttServer;
+  String mqttUser;
+  String mqttPass;
+  String apiUrl;
+  String deviceToken;
+};
+Settings cfg;
+Preferences prefs;
+
+// Setup page: BOOT held for PORTAL_HOLD_MS opens it; it closes by itself
+// after PORTAL_TIMEOUT_S without use.
+#define BOOT_PIN 0
+const unsigned long PORTAL_HOLD_MS = 3000;
+const unsigned long PORTAL_TIMEOUT_S = 180;
+unsigned long bootPressedAt = 0;
 
 const int mqtt_port = 1883;
 
@@ -85,22 +116,119 @@ void blinkConnected() {
   digitalWrite(LED_PIN, ledWasOn);
 }
 
+void loadSettings() {
+  prefs.begin("pingzap", true);
+  cfg.mqttServer = prefs.getString("mqtt_server", mqtt_server);
+  cfg.mqttUser = prefs.getString("mqtt_user", mqtt_user);
+  cfg.mqttPass = prefs.getString("mqtt_pass", mqtt_pass);
+  cfg.apiUrl = prefs.getString("api_url", api_url);
+  cfg.deviceToken = prefs.getString("device_token", device_token);
+  prefs.end();
+}
+
+void saveSettings() {
+  prefs.begin("pingzap", false);
+  prefs.putString("mqtt_server", cfg.mqttServer);
+  prefs.putString("mqtt_user", cfg.mqttUser);
+  prefs.putString("mqtt_pass", cfg.mqttPass);
+  prefs.putString("api_url", cfg.apiUrl);
+  prefs.putString("device_token", cfg.deviceToken);
+  prefs.end();
+}
+
+// Connects to the saved WiFi or, failing that (or when onDemand), opens the
+// setup network. The LED stays on while the page is open. Returns whether
+// the WiFi is connected.
+bool runPortal(bool onDemand) {
+  WiFiManager wm;
+  WiFiManagerParameter pServer("mqtt_server", "Broker MQTT (IP ou nome)", cfg.mqttServer.c_str(), 64);
+  WiFiManagerParameter pUser("mqtt_user", "Usuario MQTT", cfg.mqttUser.c_str(), 32);
+  WiFiManagerParameter pPass("mqtt_pass", "Senha MQTT", cfg.mqttPass.c_str(), 64, "type='password'");
+  WiFiManagerParameter pApi("api_url", "API do pingzap (ex.: http://192.168.0.10:8080)", cfg.apiUrl.c_str(), 96);
+  WiFiManagerParameter pToken("device_token", "Token do dispositivo (pagina Dispositivos)", cfg.deviceToken.c_str(), 96);
+  wm.addParameter(&pServer);
+  wm.addParameter(&pUser);
+  wm.addParameter(&pPass);
+  wm.addParameter(&pApi);
+  wm.addParameter(&pToken);
+
+  wm.setTitle("pingzap");
+  wm.setConnectTimeout(20);
+  wm.setConnectRetries(3);
+  wm.setConfigPortalTimeout(PORTAL_TIMEOUT_S);
+  wm.setAPCallback([](WiFiManager* m) {
+    Serial.print("Setup page open: connect to the WiFi ");
+    Serial.print(m->getConfigPortalSSID());
+    Serial.println(" and go to http://192.168.4.1");
+    digitalWrite(LED_PIN, HIGH);
+  });
+
+  String ap = "pingzap-" + String((uint32_t)ESP.getEfuseMac(), HEX).substring(0, 4);
+  bool ok = onDemand ? wm.startConfigPortal(ap.c_str(), PORTAL_PASSWORD)
+                     : wm.autoConnect(ap.c_str(), PORTAL_PASSWORD);
+  digitalWrite(LED_PIN, LOW);
+
+  Settings next = {pServer.getValue(), pUser.getValue(), pPass.getValue(), pApi.getValue(), pToken.getValue()};
+  next.apiUrl.trim();
+  while (next.apiUrl.endsWith("/")) {
+    next.apiUrl.remove(next.apiUrl.length() - 1);
+  }
+  if (next.mqttServer != cfg.mqttServer || next.mqttUser != cfg.mqttUser || next.mqttPass != cfg.mqttPass ||
+      next.apiUrl != cfg.apiUrl || next.deviceToken != cfg.deviceToken) {
+    cfg = next;
+    saveSettings();
+    Serial.println("Settings saved");
+  }
+  return ok;
+}
+
+// Opens the setup page when BOOT is held for PORTAL_HOLD_MS. Outputs are
+// switched off first, and the board restarts afterwards to use the new
+// settings.
+void checkPortalButton() {
+  if (digitalRead(BOOT_PIN) != LOW) {
+    bootPressedAt = 0;
+    return;
+  }
+  if (bootPressedAt == 0) {
+    bootPressedAt = millis();
+    return;
+  }
+  if (millis() - bootPressedAt < PORTAL_HOLD_MS) {
+    return;
+  }
+  Serial.println("BOOT held: opening the setup page");
+  alertActive = false;
+  setBuzzer(false);
+  digitalWrite(GATE_PIN, LOW);
+  digitalWrite(RELAY_PIN, LOW);
+  relayPulseActive = false;
+  client.disconnect();
+  runPortal(true);
+  ESP.restart();
+}
+
+// delay() that still watches the BOOT button.
+void waitWatchingButton(unsigned long ms) {
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    checkPortalButton();
+    delay(50);
+  }
+}
+
 void setup_wifi() {
   Serial.println();
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(ssid);
-
+  Serial.println("Connecting to WiFi");
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  if (!runPortal(false)) {
+    // No network and nobody used the setup page: try again from the start.
+    Serial.println("WiFi not configured, restarting");
+    ESP.restart();
   }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
+  Serial.print("WiFi connected: ");
+  Serial.print(WiFi.SSID());
+  Serial.print(", IP ");
   Serial.println(WiFi.localIP());
   blinkConnected();
 }
@@ -115,7 +243,7 @@ void ensureWifi() {
   setBuzzer(false); // don't leave a steady tone while offline
   WiFi.reconnect();
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    waitWatchingButton(500); // BOOT opens the setup page, e.g. to change networks
     Serial.print(".");
   }
   Serial.println("");
@@ -155,8 +283,8 @@ void publishTelemetry(const char* event) {
 // the configuration was read; *changed tells whether it differs from before.
 bool fetchConfig(bool* changed) {
   HTTPClient http;
-  http.begin(String(api_url) + "/api/device/config");
-  http.addHeader("Authorization", String("Bearer ") + device_token);
+  http.begin(cfg.apiUrl + "/api/device/config");
+  http.addHeader("Authorization", "Bearer " + cfg.deviceToken);
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     Serial.print("Config fetch failed, HTTP ");
@@ -235,7 +363,8 @@ void reconnect() {
     ensureWifi(); // the broker is unreachable without WiFi
     Serial.print("Attempting MQTT connection...");
     // Last Will: if this ESP32 drops, the broker publishes "offline" (retained).
-    if (client.connect(device_id.c_str(), mqtt_user, mqtt_pass, topic_status.c_str(), 1, true, "offline")) {
+    if (client.connect(device_id.c_str(), cfg.mqttUser.c_str(), cfg.mqttPass.c_str(), topic_status.c_str(), 1, true,
+                       "offline")) {
       Serial.println("connected");
       client.publish(topic_status.c_str(), "online", true);
       client.subscribe(topic_command.c_str());
@@ -243,7 +372,7 @@ void reconnect() {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
-      delay(5000); // Nothing to do without the broker
+      waitWatchingButton(5000); // Nothing to do without the broker
     }
   }
 }
@@ -258,21 +387,25 @@ void setup() {
   digitalWrite(GATE_PIN, LOW);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW); // rele desligado ao ligar o ESP32
+  pinMode(BOOT_PIN, INPUT_PULLUP);
 
+  loadSettings();
   setup_wifi();
 
-  // Without its topics the board has nothing to do: retry until pingzap answers.
+  // Without its topics the board has nothing to do: retry until pingzap
+  // answers (BOOT opens the setup page to fix the API address or token).
   bool changed;
   while (!fetchConfig(&changed)) {
-    delay(5000);
+    waitWatchingButton(5000);
   }
   lastConfigFetch = millis();
 
-  client.setServer(mqtt_server, mqtt_port);
+  client.setServer(cfg.mqttServer.c_str(), mqtt_port);
   client.setCallback(callback);
 }
 
 void loop() {
+  checkPortalButton();
   ensureWifi();
   if (!client.connected()) {
     reconnect();

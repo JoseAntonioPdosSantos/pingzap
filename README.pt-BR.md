@@ -101,6 +101,9 @@ devem usar.
 
 ## Arquitetura
 
+Diagramas de como tudo se liga (WhatsApp, pingzap, MQTT, ESP32, Grafana) e
+dos fluxos: [docs/arquitetura.md](docs/arquitetura.md).
+
 ```
 pingzap/
 ├── cmd/pingzap/main.go     # liga as partes e sobe o servidor web
@@ -216,19 +219,37 @@ Depois disso essas variáveis são ignoradas.
 
 ## ESP32
 
+A placa-base do ESP32 (relé, saída isolada para o portão, buzzer, LED e
+fonte de 7-24 V), com esquemático e Gerbers prontos para pedir na PCBWay,
+está em [hardware/](hardware/README.md).
+
 O sketch fica em `firmware/pingzap/pingzap.ino` e precisa das bibliotecas
-`PubSubClient` e `ArduinoJson` (v7).
+`PubSubClient`, `ArduinoJson` (v7) e `WiFiManager` (tzapu, 2.0.x).
 
 ```sh
 cp firmware/pingzap/secrets_example.h firmware/pingzap/secrets.h
 ```
 
-No `secrets.h`, preencha:
+O `secrets.h` só guarda valores iniciais: a senha da rede de configuração
+(`PORTAL_PASSWORD`), o broker (`mqtt_server`, `mqtt_user`, `mqtt_pass`) e a
+API do pingzap (`api_url`, `device_token`).
 
-- o Wi-Fi (`ssid`, `password`);
-- o broker (`mqtt_server`, `mqtt_user`, `mqtt_pass`);
-- a API do pingzap: `api_url`, por exemplo `http://192.168.0.10:8080`, e o
-  `device_token` copiado da página **Dispositivos**.
+### Wi-Fi e configurações (página de configuração)
+
+O Wi-Fi não fica no código. Quando a placa não encontra uma rede conhecida,
+ela abre a própria rede **`pingzap-XXXX`** (senha `PORTAL_PASSWORD`) e acende
+o LED:
+
+1. Conecte o celular em `pingzap-XXXX`. A página de configuração abre
+   sozinha (ou acesse `http://192.168.4.1`).
+2. Toque em **Configure WiFi**, escolha a rede e digite a senha.
+3. Confira o broker, a API do pingzap (ex.: `http://192.168.0.10:8080`) e o
+   token do dispositivo (página **Dispositivos**) e salve.
+
+Tudo fica gravado na flash do ESP32 e continua lá depois de reiniciar ou
+regravar o firmware. Para trocar de rede ou de servidor depois, **segure o
+botão BOOT por 3 s**: as saídas desligam e a página abre. Se ninguém usar a
+página, ela fecha em 3 minutos e a placa tenta de novo a rede salva.
 
 Ao ligar, a placa pede à API o seu client ID e os seus tópicos, e só então se
 conecta ao broker. A cada minuto ela confere a configuração; se os tópicos
@@ -287,7 +308,7 @@ Por rodar na nuvem, não alcança o broker nem a API da sua rede local.
 - O token de cada dispositivo dá acesso à configuração daquela placa. Se ele
   vazar, gere um novo em **Dispositivos**.
 - `whatsapp.db` dá acesso à conta do WhatsApp, `pingzap.db` contém os dados do
-  sistema, o `.env` tem as senhas do broker e o `secrets.h` as do Wi-Fi. Todos
+  sistema, o `.env` tem as senhas do broker e o `secrets.h` a da página de configuração. Todos
   estão no `.gitignore` e não devem ser versionados.
 - Os comandos não são retidos no broker: se o ESP32 estiver desligado quando o
   comando for publicado, ele não o recebe. Nos bots de fluxo, a pergunta de

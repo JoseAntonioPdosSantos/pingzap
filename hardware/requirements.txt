@@ -1,0 +1,4 @@
+shapely>=2.0
+matplotlib>=3.7
+numpy
+schemdraw>=0.18

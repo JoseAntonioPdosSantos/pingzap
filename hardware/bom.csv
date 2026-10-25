@@ -1,0 +1,23 @@
+Referencias,Qtd,Valor,Descricao,Footprint
+BZ1,1,Buzzer passivo,"Buzzer passivo 12 mm 5 V (passo 7,6 mm)",Buzzer_12x9.5RM7.6
+C1,1,47uF 35V,"Capacitor eletrolitico 47 uF 35 V 6,3 mm",CP_Radial_D6.3mm_P2.50mm
+C2,1,100uF 16V,"Capacitor eletrolitico 100 uF 16 V 6,3 mm",CP_Radial_D6.3mm_P2.50mm
+D1,1,1N5819,Diodo Schottky 1A 40V DO-41,D_DO-41_P10.16mm
+D2,1,1N4148,Diodo 1N4148 DO-35,D_DO-35_P12.00mm
+D3,1,1N4148,Diodo 1N4148 DO-35,D_DO-35_P7.62mm
+J1,1,VIN 7-24V,"Borne KF301/KF128 2 vias 5,08 mm",TerminalBlock_5.08mm_1x02
+J2,1,RELE,"Borne KF301/KF128 3 vias 5,08 mm",TerminalBlock_5.08mm_1x03
+J3,1,PORTAO,"Borne KF301/KF128 2 vias 5,08 mm",TerminalBlock_5.08mm_1x02
+J4,1,D5/GND,"Barra de pinos macho 1x2 2,54 mm",PinHeader_1x02_P2.54mm
+K1,1,SRD-05VDC-SL-C,Rele 5 V 10 A SPDT Songle SRD-05VDC-SL-C,Relay_SPDT_SANYOU_SRD_Series_Form_C
+LED1,1,Verde,LED 5 mm verde (energia),LED_D5.0mm
+LED2,1,Vermelho,LED 5 mm vermelho (alerta),LED_D5.0mm
+PS1,1,K7805-1000R3,Regulador chaveado 5 V 1 A pino 7805 (K7805-1000R3 / R-78E5.0-1.0),SIP-3_P2.54mm
+Q1 Q2,2,BC547,Transistor NPN BC547 TO-92,TO-92_Inline_Wide
+R1 R3 R7,3,1k,Resistor 1 kOhm 1/4 W,R_Axial_DIN0207_P10.16mm
+R2 R4,2,10k,Resistor 10 kOhm 1/4 W,R_Axial_DIN0207_P10.16mm
+R5 R6,2,330,Resistor 330 Ohm 1/4 W,R_Axial_DIN0207_P10.16mm
+U1A U1B,2,Soquete ESP32,"Barra femea 1x15 2,54 mm",PinSocket_1x15_P2.54mm
+U2,1,PC817,Optoacoplador PC817 DIP-4,DIP-4_W7.62mm
+U1,1,ESP32 DevKit V1 30 pinos,Placa ESP32 DOIT DevKit V1 (encaixa em U1A/U1B),-
+-,3,M3,Espacador + parafuso M3 (furos de fixacao),-
