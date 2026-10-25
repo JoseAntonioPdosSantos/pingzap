@@ -1,83 +1,91 @@
 /*
- * PROFESSIONAL MQTT EXPERIMENT - ESP32
- * * Features:
- * - Non-blocking Architecture (No delay())
- * - Automatic Reconnection (WiFi & MQTT)
- * - LWT (Last Will & Testament) for State Monitoring
- * - JSON Data Serialization
- * - Remote Command Handling
+ * pingzap - ESP32
+ *
+ * Fetches its MQTT client ID and topics from the pingzap API, then:
+ * - listens on the command topic: "ON" / "OFF" start and end the alert (LED
+ *   and buzzer), "PULSE" drives the gate once (D5 and the relay on D23);
+ * - publishes telemetry to the data topic every 5 s and on every command,
+ *   always with the same JSON fields (see publishTelemetry);
+ * - reports online / offline on the status topic (LWT, retained);
+ * - blinks the LED 3 times whenever it connects to the WiFi.
  */
 
 #include <WiFi.h>
+#include <HTTPClient.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
-// ==========================================
-// 1. CONFIGURATION (Edit these)
-// ==========================================
-// WiFi credentials (ssid / password) and the MQTT login (mqtt_user /
-// mqtt_pass) live in secrets.h, which is not versioned. Copy
-// secrets_example.h to secrets.h and fill it in.
+// WiFi credentials (ssid / password), the broker address (mqtt_server), the
+// MQTT login (mqtt_user / mqtt_pass) and the pingzap API address and device
+// token (api_url / device_token) live in secrets.h, which is not versioned.
+// Copy secrets_example.h to secrets.h and fill it in.
 #include "secrets.h"
 
-// MQTT Broker Settings (Using public HiveMQ for demo, change for production)
-const char* mqtt_server = "broker.emqx.io";
-const int mqtt_port = 1883; 
+const int mqtt_port = 1883;
 
-// Unique Device ID (Must be unique on the broker)
-const char* device_id = "ESP32_Pro_Unit_01"; 
+// MQTT client ID and topics come from the pingzap API (Dispositivos page), so
+// they are managed in a single place. The board checks for changes every
+// CONFIG_REFRESH ms and reconnects when they change.
+String device_id;       // Unique on the broker
+String topic_command;   // Where we listen for commands
+String topic_telemetry; // Where we send telemetry
+String topic_status;    // LWT (online / offline)
+unsigned long lastConfigFetch = 0;
+const unsigned long CONFIG_REFRESH = 60000;
 
-// Topics (Structure: device_type/device_id/function)
-const char* topic_telemetry = "esp32/unit01/data";   // Where we send sensor data
-const char* topic_command   = "esp32/unit01/cmd";    // Where we listen for commands
-const char* topic_status    = "esp32/unit01/status"; // LWT (Online/Offline)
-
-// ==========================================
-// 2. GLOBAL OBJECTS & VARIABLES
-// ==========================================
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-// Timers for non-blocking delays
+// Telemetry timer
 unsigned long lastMsgTime = 0;
-const long interval = 5000; // Send data every 5 seconds
+const unsigned long TELEMETRY_INTERVAL = 5000;
 
 #define LED_PIN 2 // Onboard LED
 #define BUZZER_PIN 4 // D4 -> buzzer (+); buzzer (-) -> GND
+#define GATE_PIN 5 // D5 -> Gate (HIGH during the gate pulse)
+#define RELAY_PIN 23 // D23 -> resistor 1k -> base do BC547 (rele)
 
-// Passive buzzer: tone frequency in Hz. Set to 0 for an active buzzer, which
-// only needs the pin driven HIGH.
+// Pulso do portao (nao bloqueante): um unico pulso por comando "PULSE", com
+// D5 e D23 em HIGH juntos, como um aperto no botao do portao.
+bool relayPulseActive = false;
+unsigned long relayPulseStart = 0;
+const unsigned long RELAY_PULSE_MS = 1000; // tempo que D5 e D23 ficam em HIGH
+
+// Passive buzzer tone, in Hz
 const unsigned int BUZZER_FREQ = 2000;
 
-// Alert blink (non-blocking)
+// Alert blink (non-blocking): LED and buzzer toggle until "OFF" arrives
 bool alertActive = false;
-unsigned long alertStart = 0;
 unsigned long lastBlink = 0;
-const unsigned long ALERT_DURATION = 0;    // ms; 0 = blink until "OFF" arrives
-const unsigned long BLINK_INTERVAL = 150;  // fast blink = alert
+const unsigned long BLINK_INTERVAL = 150;
 
-// Connection signal (non-blocking): blinks when WiFi + broker are up
-int connectTogglesLeft = 0;
-unsigned long lastConnectBlink = 0;
+// WiFi connection signal: the LED blinks this many times on connecting
 const int CONNECT_BLINKS = 3;
-const unsigned long CONNECT_BLINK_INTERVAL = 150; // ms on, then ms off
+const unsigned long CONNECT_BLINK_MS = 150;
 
-// Beeps along with the LED while the alert is active
 void setBuzzer(bool on) {
-  if (BUZZER_FREQ == 0) {
-    digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
-  } else if (on) {
+  if (on) {
     tone(BUZZER_PIN, BUZZER_FREQ);
   } else {
     noTone(BUZZER_PIN);
   }
 }
 
-// ==========================================
-// 3. SETUP WIFI
-// ==========================================
+// Blinks the LED to show the WiFi is connected. It only runs right after
+// connecting, so a short blocking pause is fine; the alert LED state is
+// restored afterwards.
+void blinkConnected() {
+  bool ledWasOn = digitalRead(LED_PIN);
+  for (int i = 0; i < CONNECT_BLINKS; i++) {
+    digitalWrite(LED_PIN, HIGH);
+    delay(CONNECT_BLINK_MS);
+    digitalWrite(LED_PIN, LOW);
+    delay(CONNECT_BLINK_MS);
+  }
+  digitalWrite(LED_PIN, ledWasOn);
+}
+
 void setup_wifi() {
-  delay(10);
   Serial.println();
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
@@ -94,150 +102,212 @@ void setup_wifi() {
   Serial.println("WiFi connected");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+  blinkConnected();
 }
 
-// ==========================================
-// 4. CALLBACK (Handle Incoming Messages)
-// ==========================================
+// Waits for the WiFi to come back after a drop (the ESP32 reconnects by
+// itself) and signals it with the connection blink.
+void ensureWifi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+  Serial.print("WiFi lost, reconnecting");
+  setBuzzer(false); // don't leave a steady tone while offline
+  WiFi.reconnect();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi reconnected");
+  blinkConnected();
+}
+
+// Publishes the board state, always with the same fields so the data can
+// be graphed (pingzap stores it in InfluxDB for Grafana):
+//   uptime_s   seconds since boot
+//   wifi_rssi  WiFi signal, in dBm
+//   free_heap  free memory, in bytes
+//   alert      alert on (LED and buzzer)
+//   relay      gate pulse in progress (D5 and D23)
+//   event      the command that caused this message; absent on the
+//              periodic report
+void publishTelemetry(const char* event) {
+  JsonDocument doc;
+  doc["device"] = device_id;
+  doc["uptime_s"] = millis() / 1000;
+  doc["wifi_rssi"] = WiFi.RSSI();
+  doc["free_heap"] = ESP.getFreeHeap();
+  doc["alert"] = alertActive;
+  doc["relay"] = relayPulseActive;
+  if (event) {
+    doc["event"] = event;
+  }
+
+  char buffer[256];
+  serializeJson(doc, buffer);
+  Serial.print("Publishing data: ");
+  Serial.println(buffer);
+  client.publish(topic_telemetry.c_str(), buffer);
+}
+
+// Asks pingzap which client ID and topics this board uses. Returns true when
+// the configuration was read; *changed tells whether it differs from before.
+bool fetchConfig(bool* changed) {
+  HTTPClient http;
+  http.begin(String(api_url) + "/api/device/config");
+  http.addHeader("Authorization", String("Bearer ") + device_token);
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.print("Config fetch failed, HTTP ");
+    Serial.println(code);
+    http.end();
+    return false;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, http.getString());
+  http.end();
+  if (err) {
+    Serial.print("Config parse failed: ");
+    Serial.println(err.c_str());
+    return false;
+  }
+
+  String id = doc["client_id"] | "";
+  String cmd = doc["cmd_topic"] | "";
+  String data = doc["data_topic"] | "";
+  String status = doc["status_topic"] | "";
+  if (id == "" || cmd == "" || data == "" || status == "") {
+    Serial.println("Config incomplete");
+    return false;
+  }
+
+  *changed = id != device_id || cmd != topic_command || data != topic_telemetry || status != topic_status;
+  if (*changed) {
+    device_id = id;
+    topic_command = cmd;
+    topic_telemetry = data;
+    topic_status = status;
+    Serial.println("Config: client " + device_id + ", cmd " + topic_command +
+                   ", data " + topic_telemetry + ", status " + topic_status);
+  }
+  return true;
+}
+
+// Handles the commands published by pingzap.
 void callback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-
-  // Convert payload to string for easier handling
-  String message;
-  for (int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
   Serial.println(message);
 
-  // -- Command Logic --
-  // Example: If we receive "ON", turn on LED
-  if (String(topic) == topic_command) {
-    if (message == "ON") {
-      alertActive = true;
-      connectTogglesLeft = 0; // the alert takes over the LED
-      alertStart = millis();
-      lastBlink = alertStart;
-      digitalWrite(LED_PIN, HIGH);
-      setBuzzer(true);
-      // Feedback: Publish new state immediately
-      client.publish(topic_telemetry, "{\"led\": \"ON\"}"); 
-    } else if (message == "OFF") {
-      alertActive = false; // cancel alert
-      digitalWrite(LED_PIN, LOW);
-      setBuzzer(false);
-      client.publish(topic_telemetry, "{\"led\": \"OFF\"}");
-    }
+  if (topic_command != topic) {
+    return;
+  }
+  if (message == "ON") {
+    alertActive = true;
+    lastBlink = millis();
+    digitalWrite(LED_PIN, HIGH);
+    setBuzzer(true);
+    publishTelemetry("ON");
+  } else if (message == "OFF") {
+    alertActive = false;
+    digitalWrite(LED_PIN, LOW);
+    setBuzzer(false);
+    publishTelemetry("OFF");
+  } else if (message == "PULSE") {
+    // Um pulso no D5 e no D23 para este comando (desligado sozinho no loop)
+    digitalWrite(GATE_PIN, HIGH);
+    digitalWrite(RELAY_PIN, HIGH);
+    relayPulseActive = true;
+    relayPulseStart = millis();
+    publishTelemetry("PULSE");
   }
 }
 
-// ==========================================
-// 5. RECONNECT (The Engine Room)
-// ==========================================
 void reconnect() {
-  // Loop until we're reconnected
   while (!client.connected()) {
+    ensureWifi(); // the broker is unreachable without WiFi
     Serial.print("Attempting MQTT connection...");
-    
-    // --- LWT CONFIGURATION ---
-    // define Last Will: Topic, QoS, Retain, Message
-    // If this ESP32 dies, the Broker will post "offline" to the status topic automatically.
-    
-    if (client.connect(device_id, mqtt_user, mqtt_pass, topic_status, 1, true, "offline")) {
+    // Last Will: if this ESP32 drops, the broker publishes "offline" (retained).
+    if (client.connect(device_id.c_str(), mqtt_user, mqtt_pass, topic_status.c_str(), 1, true, "offline")) {
       Serial.println("connected");
-      
-      // Once connected, publish an announcement that we are alive (Retained = true)
-      client.publish(topic_status, "online", true);
-      
-      // Resubscribe to command topics
-      client.subscribe(topic_command);
-
-      // Signal the successful connection, unless an alert owns the LED
-      if (!alertActive) {
-        digitalWrite(LED_PIN, HIGH);
-        lastConnectBlink = millis();
-        connectTogglesLeft = CONNECT_BLINKS * 2 - 1; // ends with the LED off
-      }
+      client.publish(topic_status.c_str(), "online", true);
+      client.subscribe(topic_command.c_str());
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
-      delay(5000); // Blocking delay here is acceptable as we can't operate without connection
+      delay(5000); // Nothing to do without the broker
     }
   }
 }
 
-// ==========================================
-// 6. MAIN SETUP
-// ==========================================
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
-  
+  pinMode(GATE_PIN, OUTPUT);
+  digitalWrite(GATE_PIN, LOW);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // rele desligado ao ligar o ESP32
+
   setup_wifi();
-  
+
+  // Without its topics the board has nothing to do: retry until pingzap answers.
+  bool changed;
+  while (!fetchConfig(&changed)) {
+    delay(5000);
+  }
+  lastConfigFetch = millis();
+
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
 }
 
-// ==========================================
-// 7. MAIN LOOP
-// ==========================================
 void loop() {
-  // Ensure we stay connected
+  ensureWifi();
   if (!client.connected()) {
     reconnect();
   }
-  client.loop(); // Keep MQTT alive
-  
-  // --- Alert blink handler ---
-  if (alertActive) {
-    unsigned long t = millis();
-    if (ALERT_DURATION > 0 && t - alertStart >= ALERT_DURATION) {
-      alertActive = false;
-      digitalWrite(LED_PIN, LOW); // timed out without an "OFF"
-      setBuzzer(false);
-      client.publish(topic_telemetry, "{\"led\": \"OFF\"}");
-    } else if (t - lastBlink >= BLINK_INTERVAL) {
-      lastBlink = t;
-      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-      setBuzzer(digitalRead(LED_PIN));
-    }
-  } else if (connectTogglesLeft > 0) {
-    // --- Connection blink handler ---
-    unsigned long t = millis();
-    if (t - lastConnectBlink >= CONNECT_BLINK_INTERVAL) {
-      lastConnectBlink = t;
-      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-      connectTogglesLeft--;
+  client.loop();
+
+  unsigned long now = millis();
+
+  // Topics edited in pingzap take effect here
+  if (now - lastConfigFetch >= CONFIG_REFRESH) {
+    lastConfigFetch = now;
+    bool changed = false;
+    if (fetchConfig(&changed) && changed) {
+      // Reconnecting subscribes to the new topics and sets the new LWT.
+      client.disconnect();
     }
   }
 
-  // --- Non-Blocking Timer for Telemetry ---
-  unsigned long now = millis();
-  if (now - lastMsgTime > interval) {
+  // Desliga o D5 e o D23 apos RELAY_PULSE_MS
+  if (relayPulseActive && now - relayPulseStart >= RELAY_PULSE_MS) {
+    digitalWrite(GATE_PIN, LOW);
+    digitalWrite(RELAY_PIN, LOW);
+    relayPulseActive = false;
+  }
+
+  // Alert blink: LED and buzzer together
+  if (alertActive && now - lastBlink >= BLINK_INTERVAL) {
+    lastBlink = now;
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+    setBuzzer(digitalRead(LED_PIN));
+  }
+
+  // Periodic telemetry
+  if (now - lastMsgTime >= TELEMETRY_INTERVAL) {
     lastMsgTime = now;
-    
-    // Create a JSON Document
-    JsonDocument doc; // ArduinoJson v7
-    doc["device"] = device_id;
-    doc["uptime"] = millis() / 1000;
-    doc["wifi_rssi"] = WiFi.RSSI();
-    
-    // Add dynamic data (simulated sensor)
-    doc["temp"] = random(20, 30); 
-
-    // Serialize JSON to String
-    char buffer[256];
-    serializeJson(doc, buffer);
-
-    // Publish to MQTT
-    Serial.print("Publishing data: ");
-    Serial.println(buffer);
-    client.publish(topic_telemetry, buffer);
+    publishTelemetry(nullptr);
   }
 }

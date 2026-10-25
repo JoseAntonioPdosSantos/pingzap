@@ -3,13 +3,15 @@
 **English** | [Português (Brasil)](broker.pt-BR.md)
 
 pingzap and the ESP32 only need to reach the same MQTT broker and agree on the
-topics. This guide covers the two ways of doing that and how to inspect the
+topics. This guide covers the three ways of doing that and how to inspect the
 traffic with [MQTTX](https://mqttx.app), a desktop MQTT client.
 
 - [Option 1 — public broker](#option-1--public-broker-default): no setup,
   good for trying the project out.
 - [Option 2 — your own EMQX Cloud deployment](#option-2--your-own-emqx-cloud-deployment):
   private, with username and password.
+- [Option 3 — local broker with Docker Compose](#option-3--local-broker-with-docker-compose):
+  runs on your machine, no internet needed.
 - [Testing with MQTTX](#testing-with-mqttx): watch the topics and send `ON` /
   `OFF` by hand.
 
@@ -89,19 +91,15 @@ which is normally enough for EMQX Cloud; no CA file has to be configured.
 
 ### 5. Configure the ESP32
 
-In `firmware/pingzap/secrets.h`, fill in the login:
+In `firmware/pingzap/secrets.h`, fill in the address and the login:
 
 ```cpp
+const char* mqtt_server = "xxxxx.emqxsl.com";
 const char* mqtt_user = "esp32";
 const char* mqtt_pass = "your-password";
 ```
 
-In `firmware/pingzap/pingzap.ino`, set the address and port:
-
-```cpp
-const char* mqtt_server = "xxxxx.emqxsl.com";
-const int mqtt_port = 1883;
-```
+The port is `mqtt_port` in `firmware/pingzap/pingzap.ino` (`1883` by default).
 
 The sketch as shipped speaks **plain MQTT** (`WiFiClient`), which works on port
 `1883` of Dedicated Flex and BYOC deployments. On a TLS-only deployment such as
@@ -119,6 +117,62 @@ espClient.setCACert(ca_cert);     // CA certificate downloaded from Overview
 with `mqtt_port` set to `8883` and `ca_cert` holding the contents of the
 downloaded certificate. `espClient.setInsecure()` skips the certificate check
 and is acceptable only for a quick test.
+
+## Option 3 — local broker with Docker Compose
+
+`docker-compose.yml` ships a [Mosquitto](https://mosquitto.org) broker (the
+`mosquitto` service), and the compose pingzap already points at it
+(`tcp://mosquitto:1883`, overriding `PINGZAP_MQTT_BROKER` from `.env`).
+
+The broker requires a username and password. The logins come from `.env` and
+are recreated every time the container starts (`mosquitto/init.sh`), so to
+change a password just edit `.env` and run `docker compose up -d` again:
+
+```sh
+# pingzap login
+PINGZAP_MQTT_USERNAME=pingzap
+PINGZAP_MQTT_PASSWORD=your-password
+# ESP32 login
+ESP32_MQTT_USERNAME=esp32
+ESP32_MQTT_PASSWORD=another-password
+```
+
+```sh
+docker compose up -d
+```
+
+| Side    | Protocol | Address                                       |
+|---------|----------|-----------------------------------------------|
+| pingzap | MQTT     | `tcp://mosquitto:1883` (compose network)      |
+| ESP32   | MQTT     | the machine's LAN IP, port `1883`             |
+| MQTTX   | MQTT     | `localhost` (or the machine's IP), `1883`     |
+
+On the ESP32, fill in `firmware/pingzap/secrets.h` with the IP of the machine
+running compose (`hostname -I` on Linux) and the ESP32 login:
+
+```cpp
+const char* mqtt_server = "192.168.0.10";
+const char* mqtt_user = "esp32";             // ESP32_MQTT_USERNAME
+const char* mqtt_pass = "another-password";  // ESP32_MQTT_PASSWORD
+```
+
+The board and the machine must be on the same network, and the firewall must
+allow port `1883`.
+
+The broker configuration lives in `mosquitto/mosquitto.conf`. The connection is
+not encrypted (plain MQTT), so passwords travel in clear text on the local
+network; use the broker only on trusted networks. Retained messages (such as
+the ESP32's `online` / `offline`) are kept in the `mosquitto-data` volume.
+
+To run pingzap outside Docker against this broker, start only the broker with
+`docker compose up -d mosquitto` and set in `.env`:
+
+```sh
+PINGZAP_MQTT_BROKER=tcp://localhost:1883
+```
+
+The Wokwi simulator runs in the cloud and cannot reach a broker on your local
+network; switch back to the public broker to use it.
 
 ## Testing with MQTTX
 
@@ -175,14 +229,13 @@ For more on subscribing and publishing, see the
 
 ## Changing the topics
 
-The topic names live in two places and must be the same in both:
+Each board's topics and client ID are set only on the **Dispositivos** page
+of the web interface. The board fetches them from the pingzap API on boot and
+checks again every minute; if they change, it reconnects with the new ones.
+The examples above use `esp32/unit01/...`; replace them with your device's
+topics.
 
-- pingzap: `PINGZAP_MQTT_CMD_TOPIC` and `PINGZAP_MQTT_DATA_TOPIC` in `.env`.
-- ESP32: `topic_command`, `topic_telemetry` and `topic_status` in
-  `firmware/pingzap/pingzap.ino`.
-
-If more than one board shares the broker, also give each a different
-`device_id` in the sketch.
+Each board needs a different client ID on the broker.
 
 ## Troubleshooting
 
@@ -192,4 +245,4 @@ If more than one board shares the broker, also give each a different
 | ESP32 serial shows `failed, rc=-2` | The board cannot reach the address/port; on TLS-only deployments, the sketch is still using plain MQTT. |
 | ESP32 serial shows `failed, rc=4` or `rc=5` | Wrong `mqtt_user` / `mqtt_pass`. |
 | ESP32 keeps reconnecting every few seconds | Another client is using the same `device_id`. |
-| pingzap publishes but the LED does not react | Topics differ between `.env` and the sketch, or the two sides are on different brokers. |
+| pingzap publishes but the LED does not react | The bot has no device, the board is using an outdated token (check its serial: `Config fetch failed, HTTP 401`), or the two sides are on different brokers. |

@@ -1,0 +1,15 @@
+# InfluxDB com a telemetria gravada pelo pingzap. O token vem do .env.
+apiVersion: 1
+datasources:
+  - name: InfluxDB
+    uid: influxdb-pingzap
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: pingzap
+      defaultBucket: pingzap
+    secureJsonData:
+      token: $INFLUXDB_TOKEN

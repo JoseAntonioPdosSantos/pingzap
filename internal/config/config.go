@@ -1,5 +1,10 @@
 // Package config loads the pingzap configuration from environment variables,
 // with an optional .env file in the working directory.
+//
+// Only the infrastructure lives here (broker, databases, HTTP address,
+// InfluxDB).
+// Devices, topics, bots and the chats they answer are managed in the web
+// interface.
 package config
 
 import (
@@ -13,30 +18,42 @@ import (
 const envFile = ".env"
 
 type Config struct {
-	MQTT     MQTT
-	WhatsApp WhatsApp
+	MQTT MQTT
+	// HTTPAddr is where the web interface and the API listen.
+	HTTPAddr string
+	// DB is the SQLite DSN of the pingzap data (users, devices, bots).
+	DB string
+	// WhatsAppDB is the SQLite DSN holding the WhatsApp session.
+	WhatsAppDB string
+	// Influx receives the devices' telemetry for Grafana; disabled when
+	// its URL is empty.
+	Influx Influx
+	// Legacy is the alert configured by environment variables before the
+	// web interface existed; it is imported once into the database.
+	Legacy Legacy
 }
 
 type MQTT struct {
 	BrokerURL string
 	// Username and Password are optional; public brokers need neither.
-	Username  string
-	Password  string
-	DataTopic string
-	CmdTopic  string
-	// OnPayload starts the alert on the ESP32 and OffPayload ends it.
-	OnPayload  string
-	OffPayload string
+	Username string
+	Password string
 }
 
-type WhatsApp struct {
-	// DB is the SQLite DSN holding the session; delete the file to pair again.
-	DB string
-	// Numbers are the phones whose messages trigger the alert.
-	Numbers []string
-	// Keyword restricts the trigger to messages containing it. When empty,
-	// any message from the configured numbers triggers.
-	Keyword string
+type Influx struct {
+	URL    string
+	Token  string
+	Org    string
+	Bucket string
+}
+
+type Legacy struct {
+	Numbers    []string
+	Keyword    string
+	CmdTopic   string
+	DataTopic  string
+	OnPayload  string
+	OffPayload string
 }
 
 func Load() (Config, error) {
@@ -47,27 +64,32 @@ func Load() (Config, error) {
 	cfg := Config{
 		MQTT: MQTT{
 			// Port 8084 on broker.emqx.io is MQTT over secure WebSocket (WSS).
-			BrokerURL:  env("PINGZAP_MQTT_BROKER", "wss://broker.emqx.io:8084/mqtt"),
-			Username:   env("PINGZAP_MQTT_USERNAME", ""),
-			Password:   os.Getenv("PINGZAP_MQTT_PASSWORD"),
-			DataTopic:  env("PINGZAP_MQTT_DATA_TOPIC", "esp32/unit01/data"),
+			BrokerURL: env("PINGZAP_MQTT_BROKER", "wss://broker.emqx.io:8084/mqtt"),
+			Username:  env("PINGZAP_MQTT_USERNAME", ""),
+			Password:  os.Getenv("PINGZAP_MQTT_PASSWORD"),
+		},
+		HTTPAddr:   env("PINGZAP_HTTP_ADDR", ":8080"),
+		DB:         env("PINGZAP_DB", "file:pingzap.db?_foreign_keys=on"),
+		WhatsAppDB: env("PINGZAP_WHATSAPP_DB", "file:whatsapp.db?_foreign_keys=on"),
+		Influx: Influx{
+			URL:    env("PINGZAP_INFLUX_URL", ""),
+			Token:  os.Getenv("PINGZAP_INFLUX_TOKEN"),
+			Org:    env("PINGZAP_INFLUX_ORG", "pingzap"),
+			Bucket: env("PINGZAP_INFLUX_BUCKET", "pingzap"),
+		},
+		Legacy: Legacy{
+			Keyword:    strings.TrimSpace(os.Getenv("PINGZAP_KEYWORD")),
 			CmdTopic:   env("PINGZAP_MQTT_CMD_TOPIC", "esp32/unit01/cmd"),
+			DataTopic:  env("PINGZAP_MQTT_DATA_TOPIC", "esp32/unit01/data"),
 			OnPayload:  env("PINGZAP_MQTT_ON_PAYLOAD", "ON"),
 			OffPayload: env("PINGZAP_MQTT_OFF_PAYLOAD", "OFF"),
-		},
-		WhatsApp: WhatsApp{
-			DB:      env("PINGZAP_WHATSAPP_DB", "file:whatsapp.db?_foreign_keys=on"),
-			Keyword: strings.TrimSpace(os.Getenv("PINGZAP_KEYWORD")),
 		},
 	}
 
 	for _, n := range strings.Split(os.Getenv("PINGZAP_NUMBERS"), ",") {
 		if n = strings.TrimSpace(n); n != "" {
-			cfg.WhatsApp.Numbers = append(cfg.WhatsApp.Numbers, n)
+			cfg.Legacy.Numbers = append(cfg.Legacy.Numbers, n)
 		}
-	}
-	if len(cfg.WhatsApp.Numbers) == 0 {
-		return Config{}, errors.New("PINGZAP_NUMBERS is empty: set at least one number (area code + phone), comma-separated")
 	}
 	return cfg, nil
 }

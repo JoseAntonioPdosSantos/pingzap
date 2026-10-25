@@ -1,6 +1,7 @@
 # Segredos e dados locais
 .env
 whatsapp.db*
+pingzap.db*
 firmware/**/secrets.h
 
 # Binários e artefatos de build
@@ -9,6 +10,12 @@ firmware/**/secrets.h
 *.test
 *.out
 firmware/**/build/
+
+# Frontend: dependências e build (embutido no binário pelo internal/web)
+web/node_modules/
+web/*.tsbuildinfo
+internal/web/dist/*
+!internal/web/dist/.gitkeep
 
 # IDEs e sistema
 .idea/
