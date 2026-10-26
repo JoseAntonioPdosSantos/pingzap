@@ -184,13 +184,40 @@ sequenceDiagram
     B->>E: OFF (quando todos os alertas abertos foram respondidos)
 ```
 
+## Monitoramento do ESP32
+
+Sem nada publicado pela placa por mais de 1 minuto, os chats dos bots que
+usam o dispositivo são avisados e perguntados até responderem.
+
+```mermaid
+sequenceDiagram
+    participant E as ESP32
+    participant M as Mosquitto
+    participant B as pingzap (bot)
+    actor P as Contatos e grupos do bot
+    E->>M: telemetria a cada 5 s
+    M->>B: data / status
+    Note over E: placa cai (energia, Wi-Fi...)
+    M->>B: status = offline (LWT, não conta como resposta)
+    Note over B: 1 min sem nada da placa
+    B->>P: "Sistema fora do ar... 1 - Vou analisar o caso, 2 - Ciente"
+    loop a cada 3 min, em cada chat sem resposta válida
+        B->>P: repete a pergunta
+    end
+    P->>B: 1 ou 2
+    B->>P: "Combinado..." / "Ciência registrada..."
+    E->>M: volta a publicar
+    M->>B: data
+    B->>P: "Sistema de volta... ficou X min fora do ar"
+```
+
 ## Onde fica cada parte
 
 | Pasta | Conteúdo |
 |---|---|
 | `cmd/pingzap` | ponto de entrada: liga store, MQTT, WhatsApp, bots, métricas e HTTP |
 | `internal/whatsapp` | conexão whatsmeow, QR code, contatos e grupos, envio |
-| `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, lembretes, telemetria |
+| `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, lembretes, telemetria, monitoramento das placas |
 | `internal/flow` | máquina de estados pura (menus, atalhos, confirmação, alarme) |
 | `internal/store` | SQLite: usuários, sessões, dispositivos, bots, conversas |
 | `internal/web` + `web/` | API em Go e interface em React (embutida no binário) |

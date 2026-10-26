@@ -30,6 +30,10 @@ func (f *fakeSender) SendText(_ context.Context, _ types.JID, text string) error
 	return nil
 }
 
+func (f *fakeSender) ContactJID(_ context.Context, number string) (types.JID, error) {
+	return types.NewJID(number, types.DefaultUserServer), nil
+}
+
 func setup(t *testing.T, kind string, cfg any) (*Service, *store.Store, *fakeMQTT, *fakeSender, store.Bot) {
 	t.Helper()
 	st, err := store.Open("file::memory:?_foreign_keys=on")

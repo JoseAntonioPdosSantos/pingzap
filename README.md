@@ -97,6 +97,25 @@ template ships in Portuguese.
 - Pending alerts live in memory only: after restarting pingzap, the next reply
   turns the alert off.
 
+### ESP32 monitoring
+
+pingzap watches every device used by a bot. The board publishes telemetry
+every 5 s; when it goes more than **1 minute** without publishing anything
+(the LWT `offline` does not count), the system is considered down:
+
+- Every contact and group of the bots using the device gets a warning saying
+  how long it has been silent, with the question
+  **`1` - Vou analisar o caso** (I will look into it) /
+  **`2` - Ciente** (acknowledged).
+- The question is repeated every **3 minutes** in each chat until someone
+  there answers `1` or `2`. Any other number or command (`/abrir`, `5`...)
+  gets "Não entendi a resposta" and the question again. While the question
+  is open in a chat, `1` and `2` answer it, not the bot's menu.
+- When the board publishes again, every warned chat hears that the system is
+  back and how long it was down; from then on the bots work as usual.
+- The outage is kept in memory only: if pingzap restarts while the board is
+  down, the warning is sent again 1 minute later.
+
 ### Contacts and groups
 
 - Each contact or group talks to **a single bot**.
@@ -116,7 +135,7 @@ pingzap/
 │   ├── config/             # .env: broker, databases, HTTP address
 │   ├── store/              # SQLite: users, sessions, devices, bots, conversations
 │   ├── flow/               # flow engine (state machine), no I/O
-│   ├── bot/                # routes messages to the right bot, alerts, reminders, telemetry
+│   ├── bot/                # routes messages to the right bot, alerts, reminders, telemetry, monitoring
 │   ├── alert/              # which chats still await a reply (alert bots)
 │   ├── phone/              # Brazilian phone number normalization
 │   ├── whatsapp/           # session, QR code, contacts, groups, sending

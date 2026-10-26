@@ -22,6 +22,8 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+
+	"pingzap/internal/phone"
 )
 
 // Message is a text message seen in a chat, sent by someone else or by me
@@ -235,6 +237,29 @@ func (m *Manager) SendText(ctx context.Context, chat types.JID, text string) err
 	}
 	_, err = client.SendMessage(ctx, chat, &waE2E.Message{Conversation: proto.String(text)})
 	return err
+}
+
+// ContactJID returns the WhatsApp account of a phone number, trying the
+// forms with and without the ninth digit (older Brazilian accounts lack it).
+func (m *Manager) ContactJID(ctx context.Context, number string) (types.JID, error) {
+	client, err := m.connected()
+	if err != nil {
+		return types.JID{}, err
+	}
+	var query []string
+	for _, v := range phone.Variants(number) {
+		query = append(query, "+"+v)
+	}
+	found, err := client.IsOnWhatsApp(ctx, query)
+	if err != nil {
+		return types.JID{}, err
+	}
+	for _, r := range found {
+		if r.IsIn {
+			return r.JID, nil
+		}
+	}
+	return types.JID{}, fmt.Errorf("%s não tem WhatsApp", number)
 }
 
 // Contacts returns the saved contacts that have a phone number.

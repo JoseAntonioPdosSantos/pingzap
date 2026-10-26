@@ -97,6 +97,25 @@ devem usar.
 - Os alertas pendentes ficam só em memória: depois de reiniciar o pingzap, a
   próxima resposta já desliga o alerta.
 
+### Monitoramento do ESP32
+
+O pingzap fica de olho em cada dispositivo usado por um bot. A placa publica
+telemetria a cada 5 s; se ela passar de **1 minuto** sem publicar nada (o
+`offline` do LWT não conta), o sistema é considerado fora do ar:
+
+- Todos os contatos e grupos dos bots que usam o dispositivo recebem um aviso
+  dizendo há quanto tempo ele não responde, com a pergunta
+  **`1` - Vou analisar o caso** / **`2` - Ciente**.
+- A pergunta é repetida a cada **3 minutos** em cada chat até alguém dele
+  responder `1` ou `2`. Outro número ou comando (`/abrir`, `5`...) recebe
+  "Não entendi a resposta" e a pergunta de novo. Enquanto a pergunta está
+  aberta no chat, o `1` e o `2` respondem a ela, e não ao menu do bot.
+- Quando a placa volta a publicar, todos os chats avisados recebem a
+  mensagem de que o sistema voltou e quanto tempo ficou fora; a partir daí
+  os bots funcionam normalmente.
+- A situação fica só em memória: se o pingzap reiniciar com a placa fora, o
+  aviso é enviado de novo 1 minuto depois.
+
 ### Contatos e grupos
 
 - Cada contato ou grupo conversa com **um único bot**.
@@ -117,7 +136,7 @@ pingzap/
 │   ├── config/             # .env: broker, bancos, endereço HTTP
 │   ├── store/              # SQLite: usuários, sessões, dispositivos, bots, conversas
 │   ├── flow/               # motor de fluxo (máquina de estados), sem I/O
-│   ├── bot/                # roteia mensagens ao bot certo, alertas, lembretes, telemetria
+│   ├── bot/                # roteia mensagens ao bot certo, alertas, lembretes, telemetria, monitoramento
 │   ├── alert/              # quais chats ainda aguardam resposta (bots de alerta)
 │   ├── phone/              # normalização de números brasileiros
 │   ├── whatsapp/           # sessão, QR code, contatos, grupos, envio

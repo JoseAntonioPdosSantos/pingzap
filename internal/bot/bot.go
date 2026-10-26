@@ -1,7 +1,8 @@
 // Package bot routes WhatsApp messages to the bot that answers each chat and
 // runs it: flow bots hold a menu conversation and publish commands; alert
 // bots publish ON when a message arrives and OFF once everyone was answered.
-// It also records the telemetry and status the devices send back.
+// It also records the telemetry and status the devices send back, and warns
+// the bots' chats when a device stops answering.
 package bot
 
 import (
@@ -52,6 +53,8 @@ type MQTT interface {
 
 type Sender interface {
 	SendText(ctx context.Context, chat types.JID, text string) error
+	// ContactJID finds the WhatsApp account of a phone number.
+	ContactJID(ctx context.Context, number string) (types.JID, error)
 }
 
 // Metrics stores telemetry for graphs (InfluxDB / Grafana).
@@ -75,6 +78,9 @@ type Service struct {
 	// topics maps the devices' data and status topics back to them.
 	topics   map[string]deviceTopic
 	trackers map[int64]*alert.Tracker
+	// lastHeard and outages watch the devices (see watch.go), by device ID.
+	lastHeard map[int64]time.Time
+	outages   map[int64]*outage
 }
 
 type route struct {
@@ -98,7 +104,8 @@ type savedConversation struct {
 
 // New creates the service; metrics may be nil.
 func New(st *store.Store, mq MQTT, wa Sender, metrics Metrics) *Service {
-	return &Service{store: st, mqtt: mq, wa: wa, metrics: metrics, trackers: make(map[int64]*alert.Tracker)}
+	return &Service{store: st, mqtt: mq, wa: wa, metrics: metrics, trackers: make(map[int64]*alert.Tracker),
+		lastHeard: make(map[int64]time.Time), outages: make(map[int64]*outage)}
 }
 
 // Reload rebuilds the routes and subscriptions from the database. Call it
@@ -199,6 +206,9 @@ func (s *Service) HandleMessage(m whatsapp.Message) {
 		return
 	}
 	log.Printf("bot %q (%s): message in %s (from me: %v)", r.bot.Name, r.bot.Kind, chatKey(m), m.FromMe)
+	if s.answerOutage(r, m, time.Now()) {
+		return
+	}
 	switch r.bot.Kind {
 	case store.KindAlert:
 		s.handleAlert(r, m)
@@ -286,7 +296,8 @@ func (s *Service) handleFlow(r *route, m whatsapp.Message) {
 	}
 }
 
-// RunReminders repeats unanswered confirmation questions until ctx ends.
+// RunReminders repeats unanswered confirmation questions and watches the
+// devices until ctx ends.
 func (s *Service) RunReminders(ctx context.Context) {
 	ticker := time.NewTicker(reminderCheck)
 	defer ticker.Stop()
@@ -296,6 +307,7 @@ func (s *Service) RunReminders(ctx context.Context) {
 			return
 		case now := <-ticker.C:
 			s.remind(now)
+			s.watch(now)
 		}
 	}
 }
@@ -397,6 +409,7 @@ func (s *Service) HandleTelemetry(topic string, payload []byte) {
 	if err != nil {
 		log.Printf("record telemetry from %s: %v", topic, err)
 	}
+	s.heard(d, t.status, string(payload), now)
 }
 
 func (s *Service) publish(r *route, payload string) error {
