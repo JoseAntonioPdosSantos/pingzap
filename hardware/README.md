@@ -5,15 +5,16 @@ Placa-base para o ESP32 DevKit V1 (30 pinos) com tudo o que o firmware
 LED de alerta e fonte de 7-24 V. O ESP32 encaixa em barras fêmea, sem solda,
 e pode ser trocado ou regravado pelo USB.
 
-![Placa - lado de cima](preview-top.png)
+![Placa montada, em 3D, com o ESP32 encaixado](render-3d.png)
 
 | Arquivo | Para que serve |
 |---|---|
 | `pingzap-shield-gerber.zip` | **Arquivo enviado à PCBWay** (Gerber + furação) |
 | `schematic.pdf` / `.svg` / `.png` | Esquemático |
 | `bom.csv` | Lista de componentes |
+| `render-3d.png` | Desenho 3D da placa montada, com o ESP32 encaixado |
 | `preview-top.png` / `preview-bottom.png` | Prévia dos dois lados |
-| `gen_pcb.py` / `gen_schematic.py` | Geradores (a placa é descrita em código) |
+| `gen_pcb.py` / `gen_schematic.py` / `gen_3d.py` | Geradores (a placa é descrita em código) |
 
 ## Circuito
 
@@ -87,4 +88,10 @@ falhar, ele não grava nada.
 pip install -r requirements.txt
 python3 gen_pcb.py        # Gerbers, zip, BOM e prévias
 python3 gen_schematic.py  # esquemático
+python3 gen_3d.py         # desenho 3D (render-3d.png)
 ```
+
+O `gen_3d.py` usa as mesmas posições, trilhas e serigrafia do `gen_pcb.py`,
+com modelos simplificados de cada componente. Ele renderiza fora da tela
+(pyvista); a imagem é só ilustrativa, e as medidas que valem são as dos
+Gerbers.

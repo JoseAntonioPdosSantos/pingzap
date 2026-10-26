@@ -173,9 +173,6 @@ Para rodar o pingzap fora do Docker usando esse broker, suba só ele com
 PINGZAP_MQTT_BROKER=tcp://localhost:1883
 ```
 
-O simulador do Wokwi roda na nuvem e não alcança um broker da sua rede local;
-para usá-lo, volte ao broker público.
-
 ## Testando com o MQTTX
 
 O MQTTX permite ver o que passa pelo broker e fazer o papel de qualquer um dos

@@ -2,3 +2,5 @@ shapely>=2.0
 matplotlib>=3.7
 numpy
 schemdraw>=0.18
+pyvista>=0.44
+mapbox_earcut>=1.0

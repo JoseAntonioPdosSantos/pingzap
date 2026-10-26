@@ -67,6 +67,11 @@ flowchart LR
 - A telemetria passa pelo pingzap: ele grava o último dado no SQLite (para a
   página *Dispositivos*) e envia a série ao InfluxDB, que o Grafana mostra.
 
+A placa do ESP32 (relé e saída isolada para o portão, buzzer, LED e fonte),
+desenhada em `hardware/`:
+
+![Placa do pingzap em 3D, com o ESP32 encaixado](../hardware/render-3d.png)
+
 ## Tópicos MQTT
 
 Os tópicos são cadastrados por dispositivo na web. O padrão sugerido é
@@ -107,6 +112,9 @@ sequenceDiagram
 ## Bot de fluxo: abrir o portão
 
 Mesmo fluxo para `/start` → menu → `1`, ou direto pelo atalho `/abrir`.
+Mensagens com mais de 1 minuto são descartadas antes de chegar ao bot: ao
+reconectar, o WhatsApp entrega o que chegou com o pingzap fora do ar, e esses
+comandos antigos não podem pulsar o portão.
 
 ```mermaid
 sequenceDiagram
@@ -190,4 +198,4 @@ sequenceDiagram
 | `internal/metrics` | envio da telemetria ao InfluxDB (line protocol, em lote) |
 | `mosquitto/`, `grafana/` | configuração do broker e do dashboard |
 | `firmware/pingzap` | firmware do ESP32 |
-| `hardware/` | placa do ESP32: esquemático, Gerbers para fabricação, BOM |
+| `hardware/` | placa do ESP32: esquemático, Gerbers para fabricação, BOM, desenho 3D |

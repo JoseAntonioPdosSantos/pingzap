@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"go.mau.fi/whatsmeow"
@@ -37,6 +38,16 @@ type Message struct {
 }
 
 func (m Message) IsGroup() bool { return m.Group != "" }
+
+// maxMessageAge is how old a message may be and still be handled. After a
+// reconnect WhatsApp delivers what arrived while the session was offline;
+// replaying those would repeat old commands, such as opening the gate.
+const maxMessageAge = time.Minute
+
+// isStale reports whether a message sent at sent is too old to handle.
+func isStale(sent, now time.Time) bool {
+	return now.Sub(sent) > maxMessageAge
+}
 
 type State string
 
@@ -285,6 +296,11 @@ func (m *Manager) handleEvent(client *whatsmeow.Client, evt any) {
 		log.Println("WhatsApp session logged out; pair again from the web interface")
 		go m.Logout(context.Background())
 	case *events.Message:
+		if isStale(e.Info.Timestamp, time.Now()) {
+			log.Printf("ignoring message in %s sent at %s: older than %s",
+				e.Info.Chat, e.Info.Timestamp.Format(time.RFC3339), maxMessageAge)
+			return
+		}
 		if msg, ok := m.toMessage(client, e); ok {
 			m.onMessage(msg)
 		}

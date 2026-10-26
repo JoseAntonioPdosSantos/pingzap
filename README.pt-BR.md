@@ -78,6 +78,12 @@ devem usar.
 - Mensagens enviadas pela própria conta pareada não são tratadas como
   respostas, porque o bot escreve a partir dela.
 - Salvar um bot reinicia as conversas em andamento dele.
+- Mensagens com mais de **1 minuto** são ignoradas por todos os bots. Quando o
+  pingzap volta a se conectar ao WhatsApp (depois de reiniciar ou de uma queda
+  da internet), o WhatsApp entrega o que chegou enquanto ele estava fora; essas
+  mensagens são descartadas para que comandos antigos, como `/abrir`, não
+  pulsem o portão de novo. Quem escreveu durante a queda precisa mandar o
+  comando outra vez.
 
 ### Regras dos bots de alerta
 
@@ -223,6 +229,8 @@ A placa-base do ESP32 (relé, saída isolada para o portão, buzzer, LED e
 fonte de 7-24 V), com esquemático e Gerbers prontos para pedir na PCBWay,
 está em [hardware/](hardware/README.md).
 
+![Placa do pingzap em 3D, com o ESP32 encaixado](hardware/render-3d.png)
+
 O sketch fica em `firmware/pingzap/pingzap.ino` e precisa das bibliotecas
 `PubSubClient`, `ArduinoJson` (v7) e `WiFiManager` (tzapu, 2.0.x).
 
@@ -292,12 +300,6 @@ Ao conectar ao Wi-Fi, no boot ou depois de uma queda, o LED pisca 3 vezes.
 
 Ligue o terminal positivo no `D4` (GPIO 4) e o outro no `GND`. O sketch aciona
 um buzzer passivo com um tom de 2 kHz (`BUZZER_FREQ`).
-
-### Simulador
-
-Há uma [simulação no Wokwi](https://wokwi.com/projects/477507248547038209)
-de uma versão anterior do firmware. Ela usa o broker público e tópicos fixos.
-Por rodar na nuvem, não alcança o broker nem a API da sua rede local.
 
 ## Observações
 

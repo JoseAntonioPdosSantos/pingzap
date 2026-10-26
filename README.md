@@ -80,6 +80,11 @@ template ships in Portuguese.
 - Messages sent by the paired account itself are not treated as answers,
   since the bot writes from it.
 - Saving a bot restarts its ongoing conversations.
+- Messages older than **1 minute** are ignored by every bot. When pingzap
+  reconnects to WhatsApp (after a restart or an internet outage), WhatsApp
+  delivers what arrived while it was offline; those messages are discarded
+  so old commands, such as `/abrir`, do not pulse the gate again. Anyone who
+  wrote during the outage must send the command again.
 
 ### Alert bot rules
 
@@ -223,6 +228,8 @@ A base board for the ESP32 (relay, isolated gate output, buzzer, LED and
 7-24 V supply), with schematic and Gerber files ready to order from PCBWay,
 is in [hardware/](hardware/README.md).
 
+![pingzap board in 3D, with the ESP32 plugged in](hardware/render-3d.png)
+
 The sketch is at `firmware/pingzap/pingzap.ino` and needs the `PubSubClient`,
 `ArduinoJson` (v7) and `WiFiManager` (tzapu, 2.0.x) libraries.
 
@@ -293,13 +300,6 @@ times.
 
 Wire its positive leg to `D4` (GPIO 4) and the other leg to `GND`. The sketch
 drives a passive buzzer with a 2 kHz tone (`BUZZER_FREQ`).
-
-### Simulator
-
-There is a [Wokwi simulation](https://wokwi.com/projects/477507248547038209)
-of an earlier firmware version. It uses the public broker and fixed topics.
-Since it runs in the cloud, it cannot reach the broker or API on your local
-network.
 
 ## Notes
 
