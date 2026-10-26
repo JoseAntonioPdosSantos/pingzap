@@ -1,0 +1,14 @@
+M48
+; pingzap gen_pcb.py - NPTH
+FMAT,2
+METRIC,TZ
+; #@! TF.FileFunction,NonPlated,1,2,NPTH
+T1C3.200
+%
+G90
+G05
+T1
+X4.000Y4.000
+X96.000Y4.000
+X96.000Y66.000
+M30

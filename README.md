@@ -101,6 +101,9 @@ template ships in Portuguese.
 
 ## Architecture
 
+Diagrams of how everything connects (WhatsApp, pingzap, MQTT, ESP32, Grafana)
+and of the flows (in Portuguese): [docs/arquitetura.md](docs/arquitetura.md).
+
 ```
 pingzap/
 ├── cmd/pingzap/main.go     # wires the parts and starts the web server
@@ -216,19 +219,37 @@ After that those variables are ignored.
 
 ## ESP32
 
-The sketch is at `firmware/pingzap/pingzap.ino` and needs the `PubSubClient`
-and `ArduinoJson` (v7) libraries.
+A base board for the ESP32 (relay, isolated gate output, buzzer, LED and
+7-24 V supply), with schematic and Gerber files ready to order from PCBWay,
+is in [hardware/](hardware/README.md).
+
+The sketch is at `firmware/pingzap/pingzap.ino` and needs the `PubSubClient`,
+`ArduinoJson` (v7) and `WiFiManager` (tzapu, 2.0.x) libraries.
 
 ```sh
 cp firmware/pingzap/secrets_example.h firmware/pingzap/secrets.h
 ```
 
-In `secrets.h`, fill in:
+`secrets.h` only holds defaults: the password of the setup network
+(`PORTAL_PASSWORD`) and the initial values of the broker (`mqtt_server`,
+`mqtt_user`, `mqtt_pass`) and of the pingzap API (`api_url`, `device_token`).
 
-- the Wi-Fi (`ssid`, `password`);
-- the broker (`mqtt_server`, `mqtt_user`, `mqtt_pass`);
-- the pingzap API: `api_url`, e.g. `http://192.168.0.10:8080`, and the
-  `device_token` copied from the **Dispositivos** page.
+### Wi-Fi and settings (setup page)
+
+The Wi-Fi is not in the code. When the board finds no known network, it opens
+its own network **`pingzap-XXXX`** (password `PORTAL_PASSWORD`) and turns the
+LED on:
+
+1. Connect to `pingzap-XXXX` from your phone; the setup page opens by itself
+   (or go to `http://192.168.4.1`).
+2. Tap **Configure WiFi**, pick the network and type its password.
+3. Check the broker, the pingzap API (e.g. `http://192.168.0.10:8080`) and the
+   device token (from the **Dispositivos** page), then save.
+
+Everything is kept in the ESP32's flash and survives reboots and new
+firmware uploads. To change networks or servers later, **hold the BOOT button
+for 3 s**: outputs turn off and the page opens. Unused, the page closes after
+3 minutes and the board tries the saved network again.
 
 On boot the board asks the API for its client ID and topics, and only then
 connects to the broker. Every minute it checks the configuration again; if
@@ -289,7 +310,7 @@ network.
 - Each device token grants access to that board's configuration. If one
   leaks, generate a new one on **Dispositivos**.
 - `whatsapp.db` grants access to the WhatsApp account, `pingzap.db` holds the
-  system data, `.env` has the broker passwords and `secrets.h` the Wi-Fi ones.
+  system data, `.env` has the broker passwords and `secrets.h` the setup page's.
   All of them are in `.gitignore` and must not be committed.
 - Commands are not retained by the broker: if the ESP32 is off when a command
   is published, it does not receive it. In flow bots, the confirmation
