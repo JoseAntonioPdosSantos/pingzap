@@ -55,6 +55,9 @@ devem usar.
     **tentativas** do fluxo (0 = sem limite);
   - **mudar o estado** quando a confirmação é `1`, ou de imediato se não houver
     confirmação.
+- Uma opção pode ser **oferecida na confirmação** das opções que levam ao seu
+  estado, numerada depois de Sim e Não (ex.: `3` - Fechar o portão em "O portão
+  abriu?"). Escolhê-la vale como `1` e já executa a opção.
 - Uma opção pode ter um **atalho** (ex.: `/abrir`, `/fechar`) que a executa
   direto, sem passar pelo menu, seguindo a mesma confirmação, tentativas e
   lembretes. O atalho só vale no estado em que a opção existe: `/abrir` com o

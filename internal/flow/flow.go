@@ -58,6 +58,10 @@ type Option struct {
 	NextState string `json:"next_state"`
 	// Reply is sent on success; empty sends a default message.
 	Reply string `json:"reply"`
+	// ShowInConfirm also offers this option, numbered after Yes and No, in the
+	// confirmation of the options that lead to its state (e.g. "close the gate"
+	// when asked whether it opened). Choosing it answers yes.
+	ShowInConfirm bool `json:"show_in_confirm,omitempty"`
 }
 
 // Conversation is the progress of one chat through the flow.
@@ -274,14 +278,17 @@ func (f Flow) handle(current string, c Conversation, text string, now time.Time)
 			c.PromptedAt = now
 			c.Reminders = 0
 			return Result{
-				Replies:      []string{fmt.Sprintf("Tentando novamente (tentativa %d)...\n\n%s", c.Attempts, confirmPrompt(opt))},
+				Replies:      []string{fmt.Sprintf("Tentando novamente (tentativa %d)...\n\n%s", c.Attempts, f.confirmPrompt(opt))},
 				Publish:      []string{opt.Command},
 				Conversation: c,
 			}, true
 		default:
+			if r, ok := f.chooseInConfirm(opt, text, now); ok {
+				return r, true
+			}
 			c.PromptedAt = now
 			return Result{
-				Replies:      []string{"Responda 1 para Sim ou 2 para Não.\n\n" + confirmPrompt(opt)},
+				Replies:      []string{"Responda 1 para Sim ou 2 para Não.\n\n" + f.confirmPrompt(opt)},
 				Conversation: c,
 			}, true
 		}
@@ -306,7 +313,7 @@ func (f Flow) Remind(c Conversation, now time.Time) (Result, bool) {
 	c.PromptedAt = now
 	c.Reminders++
 	r := Result{
-		Replies:      []string{"Ainda preciso da sua resposta:\n\n" + confirmPrompt(opt)},
+		Replies:      []string{"Ainda preciso da sua resposta:\n\n" + f.confirmPrompt(opt)},
 		Conversation: c,
 	}
 	if f.AlarmAfterReminders > 0 && c.Reminders >= f.AlarmAfterReminders && !c.Alarm {
@@ -387,7 +394,7 @@ func (f Flow) choose(s State, index int, now time.Time) Result {
 		return r
 	}
 	return Result{
-		Replies: []string{"Comando enviado.\n\n" + confirmPrompt(opt)},
+		Replies: []string{"Comando enviado.\n\n" + f.confirmPrompt(opt)},
 		Publish: []string{opt.Command},
 		Conversation: Conversation{
 			Step:       StepConfirm,
@@ -421,6 +428,43 @@ func (f Flow) option(c Conversation) (Option, bool) {
 	return Option{}, false
 }
 
-func confirmPrompt(o Option) string {
-	return o.Confirm + "\n*1* - Sim\n*2* - Não"
+func (f Flow) confirmPrompt(o Option) string {
+	var b strings.Builder
+	b.WriteString(o.Confirm + "\n*1* - Sim\n*2* - Não")
+	next, extras := f.confirmExtras(o)
+	for i, index := range extras {
+		fmt.Fprintf(&b, "\n*%d* - %s", i+3, next.Options[index].Label)
+	}
+	return b.String()
+}
+
+// confirmExtras returns the state o leads to and the indexes of its options
+// offered in o's confirmation.
+func (f Flow) confirmExtras(o Option) (State, []int) {
+	if o.NextState == "" {
+		return State{}, nil
+	}
+	next := f.State(o.NextState)
+	var extras []int
+	for i, candidate := range next.Options {
+		if candidate.ShowInConfirm {
+			extras = append(extras, i)
+		}
+	}
+	return next, extras
+}
+
+// chooseInConfirm runs the extra option numbered text in o's confirmation.
+// Choosing it means o worked, so the bot moves to o's next state first.
+func (f Flow) chooseInConfirm(o Option, text string, now time.Time) (Result, bool) {
+	next, extras := f.confirmExtras(o)
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 3 || n-3 >= len(extras) {
+		return Result{}, false
+	}
+	r := f.choose(next, extras[n-3], now)
+	if r.NewState == "" {
+		r.NewState = next.ID
+	}
+	return r, true
 }

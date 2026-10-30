@@ -515,6 +515,14 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
                   onChange={(e) => setOption(i, { ...o, reply: e.target.value })}
                 />
               </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={o.show_in_confirm ?? false}
+                  onChange={(e) => setOption(i, { ...o, show_in_confirm: e.target.checked })}
+                />
+                Oferecer também na confirmação das opções que levam a este estado
+              </label>
             </fieldset>
           ))}
           <button type="button" onClick={() => onChange({ ...state, options: [...state.options, emptyOption()] })}>

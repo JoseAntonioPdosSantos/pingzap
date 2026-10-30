@@ -57,6 +57,9 @@ template ships in Portuguese.
     limit (0 = unlimited);
   - **change the state** when the confirmation is `1`, or right away when
     there is no confirmation.
+- An option may be **offered in the confirmation** of the options that lead to
+  its state, numbered after Yes and No (e.g. `3` - Fechar o portão in "O portão
+  abriu?"). Choosing it counts as `1` and runs the option right away.
 - An option may have a **shortcut** (e.g. `/abrir`, `/fechar`) that runs it
   straight away, skipping the menu, with the same confirmation, attempts and
   reminders. A shortcut only works in the state where its option exists:

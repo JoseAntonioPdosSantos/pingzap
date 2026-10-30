@@ -25,6 +25,7 @@ export type FlowOption = {
   confirm: string
   next_state: string
   reply: string
+  show_in_confirm?: boolean
 }
 export type FlowState = { id: string; name: string; menu: string; options: FlowOption[] }
 export type Flow = {

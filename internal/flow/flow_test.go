@@ -246,3 +246,40 @@ func TestShortcutValidation(t *testing.T) {
 		t.Error("accepted a repeated shortcut in the same state")
 	}
 }
+
+func TestShowInConfirm(t *testing.T) {
+	f := GateTemplate()
+	// Option 2 of "aberto" stands in for one with no confirmation of its own.
+	f.States[1].Options[1].ShowInConfirm = true
+	f.States[1].Options[1].Command = "PULSE"
+
+	r, _ := f.Handle("fechado", Conversation{}, "/abrir", t0)
+	if !strings.Contains(r.Replies[0], "*2* - Não\n*3* - Informar que o portão foi fechado") {
+		t.Fatalf("question = %q", r.Replies[0])
+	}
+	asked := r.Conversation
+
+	// The reminder repeats the extra option too.
+	rem, _ := f.Remind(asked, t0.Add(3*time.Minute))
+	if !strings.Contains(rem.Replies[0], "*3* - Informar") {
+		t.Fatalf("reminder = %q", rem.Replies[0])
+	}
+
+	done, _ := f.Handle("fechado", asked, "3", t0)
+	if pub(done) != "PULSE" || done.NewState != "fechado" || done.Conversation.Step != StepIdle {
+		t.Fatalf("option 3 = %+v", done)
+	}
+
+	// An extra option with its own confirmation first moves to its state.
+	f.States[1].Options[1].Confirm = "O portão fechou?"
+	asking, _ := f.Handle("fechado", asked, "3", t0)
+	if asking.NewState != "aberto" || asking.Conversation.Step != StepConfirm || asking.Conversation.StateID != "aberto" {
+		t.Fatalf("option 3 with confirmation = %+v", asking)
+	}
+
+	// Numbers past the extras repeat the question without publishing.
+	inv, _ := f.Handle("fechado", asked, "4", t0)
+	if pub(inv) != "" || inv.Conversation.Step != StepConfirm {
+		t.Fatalf("option 4 = %+v", inv)
+	}
+}
