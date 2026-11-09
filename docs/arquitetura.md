@@ -128,20 +128,13 @@ sequenceDiagram
     M->>E: PULSE
     E->>G: relé D23 + opto D5 por 1 s
     E->>M: telemetria (event: PULSE)
-    B->>P: "O portão abriu? 1 - Sim, 2 - Não"
-    alt 2 - Não
+    B->>B: estado = aberto (confia no comando)
+    B->>P: "Comando enviado: portão aberto. 1 - Fechar o portão, 2 - Tentar novamente"
+    opt o portão não abriu
         P->>B: 2
         B->>M: PULSE (nova tentativa, até o limite)
-        B->>P: "O portão abriu?"
-    else sem resposta
-        B->>P: lembrete a cada 3 min
-        B->>M: após 3 lembretes: ON (alarme de urgência)
-        M->>E: LED + buzzer
+        B->>P: "Comando enviado novamente (tentativa 2)"
     end
-    P->>B: 1
-    B->>B: estado = aberto
-    B->>M: OFF (se o alarme estava ligado)
-    B->>P: "Portão aberto."
 ```
 
 ## Máquina de estados do portão
@@ -151,21 +144,17 @@ O estado é um só por bot, compartilhado por todos os contatos e grupos dele.
 ```mermaid
 stateDiagram-v2
     [*] --> fechado
-    fechado --> aguardando_abrir: 1 ou /abrir (PULSE)
-    aguardando_abrir --> aguardando_abrir: 2 - Não (PULSE de novo)
-    aguardando_abrir --> aberto: 1 - Sim
-    aguardando_abrir --> fechado: limite de tentativas
+    fechado --> aberto: 1 ou /abrir (PULSE)
+    aberto --> aberto: Tentar novamente (PULSE de novo)
     fechado --> aberto: "aberto pelo controle"
-    aberto --> aguardando_fechar: 1 ou /fechar (PULSE)
-    aguardando_fechar --> aguardando_fechar: 2 - Não (PULSE de novo)
-    aguardando_fechar --> fechado: 1 - Sim
-    aguardando_fechar --> aberto: limite de tentativas
+    aberto --> fechado: 1 ou /fechar (PULSE)
+    fechado --> fechado: Tentar novamente (PULSE de novo)
     aberto --> fechado: "fechado pelo controle"
 
-    note right of aguardando_abrir
-        sem resposta: lembrete a cada 3 min;
-        no 3º lembrete o alarme (ON) dispara;
-        a resposta desliga o alarme (OFF)
+    note right of aberto
+        o bot não pergunta se deu certo;
+        Tentar novamente vai até o limite de tentativas
+        e não roda se outra pessoa mudou o estado
     end note
 ```
 
@@ -217,8 +206,8 @@ sequenceDiagram
 |---|---|
 | `cmd/pingzap` | ponto de entrada: liga store, MQTT, WhatsApp, bots, métricas e HTTP |
 | `internal/whatsapp` | conexão whatsmeow, QR code, contatos e grupos, envio |
-| `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, lembretes, telemetria, monitoramento das placas |
-| `internal/flow` | máquina de estados pura (menus, atalhos, confirmação, alarme) |
+| `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, telemetria, monitoramento das placas |
+| `internal/flow` | máquina de estados pura (menus, atalhos, tentar novamente) |
 | `internal/store` | SQLite: usuários, sessões, dispositivos, bots, conversas |
 | `internal/web` + `web/` | API em Go e interface em React (embutida no binário) |
 | `internal/mqtt` | cliente MQTT com reconexão e assinaturas dinâmicas |

@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	reminderCheck = 20 * time.Second
-	sendTimeout   = 30 * time.Second
+	watchCheck  = 20 * time.Second
+	sendTimeout = 30 * time.Second
 )
 
 // AlertConfig is the configuration of an alert bot.
@@ -69,7 +69,7 @@ type Service struct {
 	wa      Sender
 	metrics Metrics // optional
 
-	// mu serializes message handling, reminders and reloads, so a bot's
+	// mu serializes message handling, device watching and reloads, so a bot's
 	// state and conversations change one message at a time.
 	mu sync.Mutex
 	// routes maps a chat key (see chatKey) to the bot answering it.
@@ -96,7 +96,7 @@ type deviceTopic struct {
 }
 
 // savedConversation is what the store keeps per chat: the flow progress and
-// where to send reminders.
+// the chat it belongs to.
 type savedConversation struct {
 	Chat string `json:"chat"`
 	flow.Conversation
@@ -270,7 +270,7 @@ func (s *Service) handleFlow(r *route, m whatsapp.Message) {
 		return
 	}
 
-	res, ok := r.flow.Handle(r.bot.CurrentState, saved.Conversation, m.Text, time.Now())
+	res, ok := r.flow.Handle(r.bot.CurrentState, saved.Conversation, m.Text)
 	if !ok {
 		return
 	}
@@ -296,61 +296,16 @@ func (s *Service) handleFlow(r *route, m whatsapp.Message) {
 	}
 }
 
-// RunReminders repeats unanswered confirmation questions and watches the
-// devices until ctx ends.
-func (s *Service) RunReminders(ctx context.Context) {
-	ticker := time.NewTicker(reminderCheck)
+// RunWatch watches the devices until ctx ends.
+func (s *Service) RunWatch(ctx context.Context) {
+	ticker := time.NewTicker(watchCheck)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			s.remind(now)
 			s.watch(now)
-		}
-	}
-}
-
-func (s *Service) remind(now time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, r := range s.bots {
-		if r.bot.Kind != store.KindFlow || r.flow.ReminderMinutes <= 0 {
-			continue
-		}
-		convs, err := s.store.Conversations(r.bot.ID)
-		if err != nil {
-			log.Printf("bot %q: load conversations: %v", r.bot.Name, err)
-			continue
-		}
-		for key, data := range convs {
-			var saved savedConversation
-			if json.Unmarshal(data, &saved) != nil {
-				continue
-			}
-			res, ok := r.flow.Remind(saved.Conversation, now)
-			if !ok {
-				continue
-			}
-			chat, err := types.ParseJID(saved.Chat)
-			if err != nil {
-				continue
-			}
-			for _, cmd := range res.Publish {
-				if err := s.publish(r, cmd); err != nil {
-					// Try the alarm again on the next reminder.
-					log.Printf("bot %q: alarm: %v", r.bot.Name, err)
-					res.Conversation.Alarm = false
-					res.Replies = res.Replies[:1]
-					break
-				}
-				log.Printf("bot %q: no answer in %s; alarm fired", r.bot.Name, key)
-			}
-			s.saveConversation(r, key, chat, res.Conversation)
-			for _, reply := range res.Replies {
-				s.send(chat, reply)
-			}
 		}
 	}
 }

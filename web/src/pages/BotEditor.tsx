@@ -17,16 +17,12 @@ import {
 
 const newId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
-const emptyOption = (): FlowOption => ({ label: '', shortcut: '', command: '', confirm: '', next_state: '', reply: '' })
+const emptyOption = (): FlowOption => ({ label: '', shortcut: '', command: '', next_state: '', reply: '' })
 
 const blankFlow = (): Flow => ({
   start_command: '/start',
   menu_command: '/menu',
-  reminder_minutes: 3,
   max_attempts: 3,
-  alarm_after_reminders: 3,
-  alarm_command: 'ON',
-  alarm_clear_command: 'OFF',
   states: [{ id: newId(), name: 'Inicial', menu: '', options: [emptyOption()] }],
 })
 
@@ -320,16 +316,6 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
         </div>
         <div className="inline">
           <label>
-            Insistir sem resposta a cada (min)
-            <input
-              type="number"
-              min={0}
-              value={flow.reminder_minutes}
-              onChange={(e) => onChange({ ...flow, reminder_minutes: Number(e.target.value) })}
-            />
-            <small className="muted">0 = não insiste.</small>
-          </label>
-          <label>
             Máximo de tentativas
             <input
               type="number"
@@ -337,44 +323,13 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
               value={flow.max_attempts}
               onChange={(e) => onChange({ ...flow, max_attempts: Number(e.target.value) })}
             />
-            <small className="muted">Envios do comando quando a resposta é "não". 0 = sem limite.</small>
-          </label>
-        </div>
-        <div className="inline">
-          <label>
-            Alarme após (lembretes sem resposta)
-            <input
-              type="number"
-              min={0}
-              value={flow.alarm_after_reminders ?? 0}
-              onChange={(e) => onChange({ ...flow, alarm_after_reminders: Number(e.target.value) })}
-            />
-            <small className="muted">
-              Ninguém confirmou? Aciona o alarme do dispositivo (LED e buzzer) para alguém verificar. 0 = nunca.
-            </small>
-          </label>
-          <label>
-            Comando do alarme
-            <input
-              value={flow.alarm_command ?? ''}
-              disabled={!flow.alarm_after_reminders}
-              onChange={(e) => onChange({ ...flow, alarm_command: e.target.value })}
-            />
-          </label>
-          <label>
-            Comando para desligar
-            <input
-              value={flow.alarm_clear_command ?? ''}
-              disabled={!flow.alarm_after_reminders}
-              placeholder="vazio = não desliga"
-              onChange={(e) => onChange({ ...flow, alarm_clear_command: e.target.value })}
-            />
-            <small className="muted">Enviado quando alguém responde.</small>
+            <small className="muted">Envios do comando, contando os de "Tentar novamente". 0 = sem limite.</small>
           </label>
         </div>
         <p className="muted">
           O bot tem um estado atual, compartilhado por todos que conversam com ele. Cada estado mostra o seu menu; cada
-          opção pode enviar um comando ao dispositivo, pedir confirmação (1 Sim / 2 Não) e mudar o estado.
+          opção pode enviar um comando ao dispositivo e mudar o estado. O bot confia no comando: muda o estado na hora,
+          sem perguntar se deu certo, e oferece "Tentar novamente" caso o dispositivo não tenha respondido.
         </p>
       </div>
 
@@ -480,10 +435,7 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
                   <input
                     value={o.command}
                     placeholder="vazio = só muda o estado"
-                    onChange={(e) =>
-                      // A confirmation only makes sense after a command.
-                      setOption(i, { ...o, command: e.target.value, confirm: e.target.value ? o.confirm : '' })
-                    }
+                    onChange={(e) => setOption(i, { ...o, command: e.target.value })}
                   />
                 </label>
                 <label>
@@ -499,15 +451,6 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
                 </label>
               </div>
               <label>
-                Pergunta de confirmação
-                <input
-                  value={o.confirm}
-                  disabled={!o.command}
-                  placeholder={o.command ? 'Ex.: O portão abriu? (vazio = não pergunta)' : 'Só para opções com comando'}
-                  onChange={(e) => setOption(i, { ...o, confirm: e.target.value })}
-                />
-              </label>
-              <label>
                 Resposta ao concluir
                 <input
                   value={o.reply}
@@ -521,7 +464,7 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
                   checked={o.show_in_confirm ?? false}
                   onChange={(e) => setOption(i, { ...o, show_in_confirm: e.target.checked })}
                 />
-                Oferecer também na confirmação das opções que levam a este estado
+                Oferecer também logo após os comandos que levam a este estado (antes de "Tentar novamente")
               </label>
             </fieldset>
           ))}

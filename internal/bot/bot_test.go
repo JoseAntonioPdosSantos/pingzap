@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"go.mau.fi/whatsmeow/types"
 
@@ -80,27 +79,28 @@ func TestFlowBot(t *testing.T) {
 	if len(mq.published) != 1 || mq.published[0] != "x/cmd PULSE" {
 		t.Fatalf("published = %q", mq.published)
 	}
+	// The command is trusted: the state changes without asking.
+	if got, _ := st.GetBot(b.ID); got.CurrentState != "aberto" {
+		t.Fatalf("state = %q, want aberto", got.CurrentState)
+	}
 
 	// My own messages that are not input (e.g. the bot's own replies, sent
 	// from my account) are ignored.
 	sentBefore := len(wa.sent)
-	mine := contactMsg("O portão abriu?\n*1* - Sim\n*2* - Não")
+	mine := contactMsg("Comando enviado: portão *aberto*.\n\n*2* - Tentar novamente")
 	mine.FromMe = true
 	s.HandleMessage(mine)
 	if len(wa.sent) != sentBefore || len(mq.published) != 1 {
 		t.Fatalf("answered my own non-input message: %q %q", wa.sent[sentBefore:], mq.published)
 	}
 
-	// Unanswered for 3 minutes: the question is repeated.
-	sent := len(wa.sent)
-	s.remind(time.Now().Add(3 * time.Minute))
-	if len(wa.sent) != sent+1 || !strings.Contains(wa.sent[sent], "O portão abriu?") {
-		t.Fatalf("reminder: %q", wa.sent[sent:])
+	// "Try again" sends the pulse again and keeps the state.
+	s.HandleMessage(contactMsg("2"))
+	if len(mq.published) != 2 || !strings.Contains(wa.sent[len(wa.sent)-1], "tentativa 2") {
+		t.Fatalf("try again: published = %q, sent = %q", mq.published, wa.sent)
 	}
-
-	s.HandleMessage(contactMsg("1"))
 	if got, _ := st.GetBot(b.ID); got.CurrentState != "aberto" {
-		t.Fatalf("state = %q, want aberto", got.CurrentState)
+		t.Fatalf("state after retry = %q, want aberto", got.CurrentState)
 	}
 
 	// The state is shared: the group now sees the option to close.
@@ -178,29 +178,6 @@ func TestMatchesKeyword(t *testing.T) {
 	}
 }
 
-func TestFlowBotAlarm(t *testing.T) {
-	s, _, mq, wa, _ := setup(t, store.KindFlow, flow.GateTemplate())
-	s.HandleMessage(contactMsg("/start"))
-	s.HandleMessage(contactMsg("1"))
-
-	start := time.Now()
-	for i := 1; i <= 3; i++ {
-		s.remind(start.Add(time.Duration(3*i) * time.Minute))
-	}
-	want := []string{"x/cmd PULSE", "x/cmd ON"}
-	if strings.Join(mq.published, ",") != strings.Join(want, ",") {
-		t.Fatalf("published = %q, want %q", mq.published, want)
-	}
-	if last := wa.sent[len(wa.sent)-1]; !strings.Contains(last, "acionei o alarme") {
-		t.Fatalf("alarm message = %q", last)
-	}
-
-	s.HandleMessage(contactMsg("1"))
-	if got := mq.published[len(mq.published)-1]; got != "x/cmd OFF" {
-		t.Fatalf("after the answer published %q, want x/cmd OFF", got)
-	}
-}
-
 // The owner of the paired account uses the bot from their own phone.
 func TestFlowBotFromMe(t *testing.T) {
 	s, _, mq, wa, _ := setup(t, store.KindFlow, flow.GateTemplate())
@@ -217,7 +194,7 @@ func TestFlowBotFromMe(t *testing.T) {
 func TestIsInput(t *testing.T) {
 	for text, want := range map[string]bool{
 		"/start": true, " 1 ": true, "2": true, "/menu agora": false,
-		"Comando enviado.\n\nO portão abriu?": false, "oi": false, "": false,
+		"Comando enviado.\n\n*1* - Tentar novamente": false, "oi": false, "": false,
 	} {
 		if got := isInput(text); got != want {
 			t.Errorf("isInput(%q) = %v, want %v", text, got, want)

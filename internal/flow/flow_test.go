@@ -3,10 +3,7 @@ package flow
 import (
 	"strings"
 	"testing"
-	"time"
 )
-
-var t0 = time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 
 func TestGateTemplateIsValid(t *testing.T) {
 	if err := GateTemplate().Validate(); err != nil {
@@ -18,48 +15,75 @@ func TestOpenGate(t *testing.T) {
 	f := GateTemplate()
 
 	// Messages outside a conversation are ignored.
-	if _, ok := f.Handle("fechado", Conversation{}, "oi", t0); ok {
+	if _, ok := f.Handle("fechado", Conversation{}, "oi"); ok {
 		t.Fatal("plain message handled without a conversation")
 	}
 
-	r, ok := f.Handle("fechado", Conversation{}, " /START ", t0)
+	r, ok := f.Handle("fechado", Conversation{}, " /START ")
 	if !ok || r.Conversation.Step != StepMenu || !strings.Contains(r.Replies[0], "*1* - Abrir o portão") {
 		t.Fatalf("/start = %+v, %v", r, ok)
 	}
 
-	r, _ = f.Handle("fechado", r.Conversation, "1", t0)
-	if pub(r) != "PULSE" || r.Conversation.Step != StepConfirm || r.NewState != "" {
+	// The command is trusted: the state changes at once, no question asked,
+	// and the next step (close) comes before "try again".
+	r, _ = f.Handle("fechado", r.Conversation, "1")
+	want := "Comando enviado: portão *aberto*.\n\nDigite o número da opção:\n*1* - Fechar o portão (/fechar)\n*2* - Tentar novamente"
+	if pub(r) != "PULSE" || r.NewState != "aberto" || r.Conversation.Step != StepSent || r.Replies[0] != want {
 		t.Fatalf("option 1 = %+v", r)
 	}
+	sent := r.Conversation
 
-	// "No": the command is sent again and the question repeated.
-	r, _ = f.Handle("fechado", r.Conversation, "2", t0)
-	if pub(r) != "PULSE" || r.Conversation.Attempts != 2 || r.Conversation.Step != StepConfirm {
-		t.Fatalf("answer 2 = %+v", r)
+	// "Try again" sends the command again and keeps the state.
+	r, _ = f.Handle("aberto", sent, "2")
+	if pub(r) != "PULSE" || r.NewState != "" || r.Conversation.Attempts != 2 || !strings.Contains(r.Replies[0], "*2* - Tentar novamente") {
+		t.Fatalf("try again = %+v", r)
 	}
 
-	// Anything other than 1 or 2 repeats the question without publishing.
-	r, _ = f.Handle("fechado", r.Conversation, "talvez", t0)
-	if pub(r) != "" || r.Conversation.Step != StepConfirm {
-		t.Fatalf("answer talvez = %+v", r)
+	// "Close" runs the close option, which only offers "try again".
+	r, _ = f.Handle("aberto", sent, "1")
+	want = "Comando enviado: portão *fechado*.\n\nDigite o número da opção:\n*1* - Tentar novamente"
+	if pub(r) != "PULSE" || r.NewState != "fechado" || r.Conversation.Step != StepSent || r.Replies[0] != want {
+		t.Fatalf("close after opening = %+v", r)
 	}
 
-	r, _ = f.Handle("fechado", r.Conversation, "1", t0)
-	if r.NewState != "aberto" || r.Conversation.Step != StepIdle || pub(r) != "" {
-		t.Fatalf("answer 1 = %+v", r)
+	r, _ = f.Handle("fechado", r.Conversation, "1")
+	if pub(r) != "PULSE" || r.NewState != "" || r.Conversation.Attempts != 2 {
+		t.Fatalf("try closing again = %+v", r)
+	}
+}
+
+func TestAfterCommandInput(t *testing.T) {
+	f := GateTemplate()
+	r, _ := f.Handle("fechado", Conversation{}, "/abrir")
+	sent := r.Conversation
+
+	// Nothing was asked: plain chat stays quiet and keeps the options.
+	if r, ok := f.Handle("aberto", sent, "valeu"); ok || r.Conversation != sent {
+		t.Fatalf("plain text after a command = %+v, %v", r, ok)
 	}
 
-	// With the gate open, the menu offers to close it.
-	r, _ = f.Handle("aberto", Conversation{}, "/menu", t0)
-	if !strings.Contains(r.Replies[0], "*1* - Fechar o portão") {
-		t.Fatalf("menu when open = %q", r.Replies[0])
+	inv, _ := f.Handle("aberto", sent, "3")
+	if pub(inv) != "" || inv.Conversation != sent || !strings.HasPrefix(inv.Replies[0], "Opção inválida") {
+		t.Fatalf("option 3 = %+v", inv)
+	}
+
+	// Someone closed the gate meanwhile: trying again must not reopen it.
+	stale, _ := f.Handle("fechado", sent, "2")
+	if pub(stale) != "" || stale.Conversation.Step != StepMenu || !strings.HasPrefix(stale.Replies[0], "O estado mudou") {
+		t.Fatalf("stale retry = %+v", stale)
+	}
+
+	// Saved conversations from the old confirmation step are ignored.
+	old := Conversation{Step: "confirm", StateID: "fechado", Attempts: 1}
+	if _, ok := f.Handle("fechado", old, "1"); ok {
+		t.Fatal("handled an old confirmation")
 	}
 }
 
 func TestReportClosedByRemote(t *testing.T) {
 	f := GateTemplate()
-	r, _ := f.Handle("aberto", Conversation{}, "/menu", t0)
-	r, _ = f.Handle("aberto", r.Conversation, "2", t0)
+	r, _ := f.Handle("aberto", Conversation{}, "/menu")
+	r, _ = f.Handle("aberto", r.Conversation, "2")
 	if r.NewState != "fechado" || pub(r) != "" || r.Conversation.Step != StepIdle {
 		t.Fatalf("report closed = %+v", r)
 	}
@@ -68,52 +92,37 @@ func TestReportClosedByRemote(t *testing.T) {
 func TestMaxAttempts(t *testing.T) {
 	f := GateTemplate()
 	f.MaxAttempts = 2
-	r, _ := f.Handle("fechado", Conversation{}, "/menu", t0)
-	r, _ = f.Handle("fechado", r.Conversation, "1", t0) // attempt 1
-	r, _ = f.Handle("fechado", r.Conversation, "2", t0) // attempt 2
-	if pub(r) != "PULSE" {
-		t.Fatalf("second attempt = %+v", r)
+	r, _ := f.Handle("aberto", Conversation{}, "/fechar") // attempt 1
+	r, _ = f.Handle("fechado", r.Conversation, "1")       // attempt 2
+	if pub(r) != "PULSE" || !strings.HasPrefix(r.Replies[0], "Comando enviado novamente (tentativa 2).\n\nLimite de 2") || r.Conversation.Step != StepIdle {
+		t.Fatalf("last attempt = %+v", r)
 	}
-	r, _ = f.Handle("fechado", r.Conversation, "2", t0)
-	if pub(r) != "" || r.Conversation.Step != StepIdle || r.NewState != "" {
-		t.Fatalf("after max attempts = %+v", r)
+
+	// With other options to offer, they remain after the limit.
+	r, _ = f.Handle("fechado", Conversation{}, "/abrir")
+	r, _ = f.Handle("aberto", r.Conversation, "2")
+	if !strings.Contains(r.Replies[0], "*1* - Fechar o portão") || strings.Contains(r.Replies[0], "Tentar novamente") {
+		t.Fatalf("last attempt with extras = %q", r.Replies[0])
+	}
+	again, _ := f.Handle("aberto", r.Conversation, "2")
+	if pub(again) != "" || !strings.HasPrefix(again.Replies[0], "Opção inválida") {
+		t.Fatalf("retry past the limit = %+v", again)
 	}
 }
 
 func TestInvalidOptionAndStaleMenu(t *testing.T) {
 	f := GateTemplate()
-	r, _ := f.Handle("fechado", Conversation{}, "/menu", t0)
+	r, _ := f.Handle("fechado", Conversation{}, "/menu")
 
-	inv, _ := f.Handle("fechado", r.Conversation, "9", t0)
+	inv, _ := f.Handle("fechado", r.Conversation, "9")
 	if pub(inv) != "" || inv.Conversation.Step != StepMenu || !strings.HasPrefix(inv.Replies[0], "Opção inválida") {
 		t.Fatalf("invalid option = %+v", inv)
 	}
 
 	// Someone else opened the gate meanwhile: option 1 must not close it.
-	stale, _ := f.Handle("aberto", r.Conversation, "1", t0)
+	stale, _ := f.Handle("aberto", r.Conversation, "1")
 	if pub(stale) != "" || stale.Conversation.StateID != "aberto" {
 		t.Fatalf("stale menu = %+v", stale)
-	}
-}
-
-func TestRemind(t *testing.T) {
-	f := GateTemplate()
-	r, _ := f.Handle("fechado", Conversation{}, "/menu", t0)
-	r, _ = f.Handle("fechado", r.Conversation, "1", t0)
-
-	if _, ok := f.Remind(r.Conversation, t0.Add(2*time.Minute)); ok {
-		t.Fatal("reminded before 3 minutes")
-	}
-	rem, ok := f.Remind(r.Conversation, t0.Add(3*time.Minute))
-	if !ok || !strings.Contains(rem.Replies[0], "O portão abriu?") {
-		t.Fatalf("reminder = %+v, %v", rem, ok)
-	}
-	// The next reminder waits another full interval.
-	if _, ok := f.Remind(rem.Conversation, t0.Add(5*time.Minute)); ok {
-		t.Fatal("reminded twice within the interval")
-	}
-	if _, ok := f.Remind(Conversation{}, t0.Add(time.Hour)); ok {
-		t.Fatal("reminded without a pending question")
 	}
 }
 
@@ -124,10 +133,10 @@ func TestValidate(t *testing.T) {
 		t.Error("accepted an option pointing at a missing state")
 	}
 
-	noCommand := GateTemplate()
-	noCommand.States[0].Options[0].Command = ""
-	if noCommand.Validate() == nil {
-		t.Error("accepted a confirmation without a command")
+	negative := GateTemplate()
+	negative.MaxAttempts = -1
+	if negative.Validate() == nil {
+		t.Error("accepted negative attempts")
 	}
 
 	if (Flow{StartCommand: "/start"}).Validate() == nil {
@@ -137,97 +146,32 @@ func TestValidate(t *testing.T) {
 
 func pub(r Result) string { return strings.Join(r.Publish, ",") }
 
-func TestAlarmAfterUnansweredReminders(t *testing.T) {
-	f := GateTemplate()
-	r, _ := f.Handle("fechado", Conversation{}, "/menu", t0)
-	r, _ = f.Handle("fechado", r.Conversation, "1", t0)
-
-	// Reminders 1 and 2 only repeat the question.
-	c := r.Conversation
-	now := t0
-	for i := 1; i <= 2; i++ {
-		now = now.Add(3 * time.Minute)
-		rem, ok := f.Remind(c, now)
-		if !ok || pub(rem) != "" {
-			t.Fatalf("reminder %d = %+v, %v", i, rem, ok)
-		}
-		c = rem.Conversation
-	}
-
-	// The third unanswered reminder fires the alarm, once.
-	now = now.Add(3 * time.Minute)
-	rem, _ := f.Remind(c, now)
-	if pub(rem) != "ON" || !rem.Conversation.Alarm || len(rem.Replies) != 2 {
-		t.Fatalf("third reminder = %+v", rem)
-	}
-	now = now.Add(3 * time.Minute)
-	again, ok := f.Remind(rem.Conversation, now)
-	if !ok || pub(again) != "" {
-		t.Fatalf("reminder after the alarm = %+v, %v", again, ok)
-	}
-
-	// The answer turns the alarm off before handling the confirmation.
-	done, _ := f.Handle("fechado", again.Conversation, "1", now)
-	if pub(done) != "OFF" || done.NewState != "aberto" || !strings.HasPrefix(done.Replies[0], "Alarme desligado") {
-		t.Fatalf("answer after the alarm = %+v", done)
-	}
-
-	// Answering "no" also clears it and sends the command again.
-	retry, _ := f.Handle("fechado", again.Conversation, "2", now)
-	if pub(retry) != "OFF,PULSE" || retry.Conversation.Alarm || retry.Conversation.Reminders != 0 {
-		t.Fatalf("no after the alarm = %+v", retry)
-	}
-}
-
-func TestAlarmDisabled(t *testing.T) {
-	f := GateTemplate()
-	f.AlarmAfterReminders = 0
-	c := Conversation{Step: StepConfirm, StateID: "fechado", Option: 0, Attempts: 1, PromptedAt: t0, Reminders: 10}
-	rem, ok := f.Remind(c, t0.Add(3*time.Minute))
-	if !ok || pub(rem) != "" {
-		t.Fatalf("reminder with the alarm disabled = %+v, %v", rem, ok)
-	}
-
-	f.AlarmAfterReminders = 3
-	f.AlarmCommand = ""
-	if f.Validate() == nil {
-		t.Error("accepted an alarm without a command")
-	}
-}
-
 func TestShortcuts(t *testing.T) {
 	f := GateTemplate()
 
-	// /abrir runs the option directly and follows the same confirmation flow.
-	r, ok := f.Handle("fechado", Conversation{}, "/ABRIR", t0)
-	if !ok || pub(r) != "PULSE" || r.Conversation.Step != StepConfirm || !strings.Contains(r.Replies[0], "O portão abriu?") {
+	r, ok := f.Handle("fechado", Conversation{}, "/ABRIR")
+	if !ok || pub(r) != "PULSE" || r.NewState != "aberto" || r.Conversation.Step != StepSent {
 		t.Fatalf("/abrir = %+v, %v", r, ok)
 	}
-	r, _ = f.Handle("fechado", r.Conversation, "2", t0)
-	if pub(r) != "PULSE" || r.Conversation.Attempts != 2 {
-		t.Fatalf("no after /abrir = %+v", r)
-	}
-	r, _ = f.Handle("fechado", r.Conversation, "1", t0)
-	if r.NewState != "aberto" {
-		t.Fatalf("yes after /abrir = %+v", r)
+
+	// A shortcut also works while the options after a command are shown.
+	r, _ = f.Handle("aberto", r.Conversation, "/fechar")
+	if pub(r) != "PULSE" || r.NewState != "fechado" {
+		t.Fatalf("/fechar after /abrir = %+v", r)
 	}
 
 	// With the gate open, /abrir is not available but /fechar is.
-	r, _ = f.Handle("aberto", Conversation{}, "/abrir", t0)
+	r, _ = f.Handle("aberto", Conversation{}, "/abrir")
 	if pub(r) != "" || !strings.HasPrefix(r.Replies[0], "/abrir não está disponível agora (estado atual: Aberto)") {
 		t.Fatalf("/abrir when open = %+v", r)
 	}
-	r, _ = f.Handle("aberto", Conversation{}, "/fechar", t0)
-	if pub(r) != "PULSE" || !strings.Contains(r.Replies[0], "O portão fechou?") {
-		t.Fatalf("/fechar = %+v", r)
-	}
 
 	// The menu lists the shortcuts; unknown commands are still ignored.
-	r, _ = f.Handle("fechado", Conversation{}, "/menu", t0)
+	r, _ = f.Handle("fechado", Conversation{}, "/menu")
 	if !strings.Contains(r.Replies[0], "*1* - Abrir o portão (/abrir)") {
 		t.Fatalf("menu = %q", r.Replies[0])
 	}
-	if _, ok := f.Handle("fechado", Conversation{}, "/outro", t0); ok {
+	if _, ok := f.Handle("fechado", Conversation{}, "/outro"); ok {
 		t.Fatal("handled an unknown command")
 	}
 }
@@ -247,39 +191,17 @@ func TestShortcutValidation(t *testing.T) {
 	}
 }
 
-func TestShowInConfirm(t *testing.T) {
+func TestOptionWithoutCommand(t *testing.T) {
 	f := GateTemplate()
-	// Option 2 of "aberto" stands in for one with no confirmation of its own.
-	f.States[1].Options[1].ShowInConfirm = true
-	f.States[1].Options[1].Command = "PULSE"
+	// An option offered after a command may only record the state.
+	f.States[0].Options[1].ShowAfterCommand = true
 
-	r, _ := f.Handle("fechado", Conversation{}, "/abrir", t0)
-	if !strings.Contains(r.Replies[0], "*2* - Não\n*3* - Informar que o portão foi fechado") {
-		t.Fatalf("question = %q", r.Replies[0])
+	r, _ := f.Handle("aberto", Conversation{}, "/fechar")
+	if !strings.Contains(r.Replies[0], "*1* - Informar que o portão foi aberto pelo controle\n*2* - Tentar novamente") {
+		t.Fatalf("options = %q", r.Replies[0])
 	}
-	asked := r.Conversation
-
-	// The reminder repeats the extra option too.
-	rem, _ := f.Remind(asked, t0.Add(3*time.Minute))
-	if !strings.Contains(rem.Replies[0], "*3* - Informar") {
-		t.Fatalf("reminder = %q", rem.Replies[0])
-	}
-
-	done, _ := f.Handle("fechado", asked, "3", t0)
-	if pub(done) != "PULSE" || done.NewState != "fechado" || done.Conversation.Step != StepIdle {
-		t.Fatalf("option 3 = %+v", done)
-	}
-
-	// An extra option with its own confirmation first moves to its state.
-	f.States[1].Options[1].Confirm = "O portão fechou?"
-	asking, _ := f.Handle("fechado", asked, "3", t0)
-	if asking.NewState != "aberto" || asking.Conversation.Step != StepConfirm || asking.Conversation.StateID != "aberto" {
-		t.Fatalf("option 3 with confirmation = %+v", asking)
-	}
-
-	// Numbers past the extras repeat the question without publishing.
-	inv, _ := f.Handle("fechado", asked, "4", t0)
-	if pub(inv) != "" || inv.Conversation.Step != StepConfirm {
-		t.Fatalf("option 4 = %+v", inv)
+	done, _ := f.Handle("fechado", r.Conversation, "1")
+	if pub(done) != "" || done.NewState != "aberto" || done.Conversation.Step != StepIdle {
+		t.Fatalf("option 1 = %+v", done)
 	}
 }

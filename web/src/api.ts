@@ -22,7 +22,6 @@ export type FlowOption = {
   label: string
   shortcut?: string
   command: string
-  confirm: string
   next_state: string
   reply: string
   show_in_confirm?: boolean
@@ -31,11 +30,7 @@ export type FlowState = { id: string; name: string; menu: string; options: FlowO
 export type Flow = {
   start_command: string
   menu_command: string
-  reminder_minutes: number
   max_attempts: number
-  alarm_after_reminders: number
-  alarm_command: string
-  alarm_clear_command: string
   states: FlowState[]
 }
 export type AlertConfig = { keyword: string; on_payload: string; off_payload: string }

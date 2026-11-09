@@ -62,7 +62,7 @@ func main() {
 	if err := wa.Start(); err != nil {
 		log.Printf("WhatsApp error: %v", err)
 	}
-	go bots.RunReminders(ctx)
+	go bots.RunWatch(ctx)
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: web.New(st, bots, wa)}
 	go func() {

@@ -222,6 +222,13 @@ func prepareBot(b *store.Bot) error {
 		if err := f.Validate(); err != nil {
 			return err
 		}
+		// Re-encoding drops fields the flow no longer has (e.g. the old
+		// confirmation questions and reminders).
+		config, err := json.Marshal(f)
+		if err != nil {
+			return err
+		}
+		b.Config = config
 		b.CurrentState = f.State(b.CurrentState).ID
 	case store.KindAlert:
 		var a bot.AlertConfig

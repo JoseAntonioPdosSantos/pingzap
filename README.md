@@ -23,24 +23,19 @@ the pingzap API.
 
 ```
  person (WhatsApp)              pingzap                       ESP32
-    │── /start ────────────────────▶│                             │
-    │◀─ "The gate is closed.        │                             │
-    │    *1* - Open the gate"       │                             │
-    │── 1 ─────────────────────────▶│── PULSE to <cmd queue> ────▶│ relay pulse
-    │◀─ "Did the gate open?         │                             │
-    │    *1* - Yes  *2* - No"       │                             │
-    │── 2 ─────────────────────────▶│── PULSE (new attempt) ─────▶│ relay pulse
-    │◀─ "Did the gate open?" ...    │                             │
-    │   (no answer for 3 min)       │                             │
-    │◀─ "I still need your answer:  │                             │
-    │    Did the gate open?"        │                             │
-    │── 1 ─────────────────────────▶│ state = open                │
-    │◀─ "Gate open."                │                             │
-    │── /menu ─────────────────────▶│                             │
-    │◀─ "The gate is open.          │                             │
+    │── /abrir ────────────────────▶│── PULSE to <cmd queue> ────▶│ relay pulse
+    │                               │ state = open                │
+    │◀─ "Command sent: gate open.   │                             │
     │    *1* - Close the gate       │                             │
-    │    *2* - Report the gate was  │                             │
-    │          closed by the remote"│                             │
+    │    *2* - Try again"           │                             │
+    │   (the gate did not open)     │                             │
+    │── 2 ─────────────────────────▶│── PULSE (new attempt) ─────▶│ relay pulse
+    │◀─ "Command sent again         │                             │
+    │    (attempt 2). ..."          │                             │
+    │── 1 ─────────────────────────▶│── PULSE ───────────────────▶│ relay pulse
+    │                               │ state = closed              │
+    │◀─ "Command sent: gate closed. │                             │
+    │    *1* - Try again"           │                             │
 ```
 
 The bot texts are in Portuguese and editable on the web; the ready-made gate
@@ -52,34 +47,31 @@ template ships in Portuguese.
   per bot, shared by all of its contacts and groups.
 - Each state has a numbered menu. Each option may:
   - publish a **command** to the command topic of the bot's device;
-  - ask a **confirmation question** (`1` Yes / `2` No). On `2` the command is
-    published again and the question repeats, up to the flow's **attempt**
-    limit (0 = unlimited);
-  - **change the state** when the confirmation is `1`, or right away when
-    there is no confirmation.
-- An option may be **offered in the confirmation** of the options that lead to
-  its state, numbered after Yes and No (e.g. `3` - Fechar o portão in "O portão
-  abriu?"). Choosing it counts as `1` and runs the option right away.
+  - **change the state**.
+- The bot **trusts the command**: once it is published, the bot moves to the
+  next state without asking whether it worked. Right after, it offers **Try
+  again** (Tentar novamente), which publishes the command again without
+  changing the state, in case the person sees the device did not act. Attempts
+  go up to the flow's limit (0 = unlimited).
+- An option may be **offered right after the commands** that lead to its
+  state, numbered before Try again (e.g. after `/abrir`, `1` - Fechar o portão
+  and `2` - Tentar novamente; after `/fechar`, only `1` - Tentar novamente).
 - An option may have a **shortcut** (e.g. `/abrir`, `/fechar`) that runs it
-  straight away, skipping the menu, with the same confirmation, attempts and
-  reminders. A shortcut only works in the state where its option exists:
-  `/abrir` with the gate already open answers with the current menu. The menu
-  shows each option's shortcut.
+  straight away, skipping the menu. A shortcut only works in the state where
+  its option exists: `/abrir` with the gate already open answers with the
+  current menu. The menu shows each option's shortcut.
 - An option without a command only changes the state. That is how to report
-  the gate was opened or closed some other way (with the remote). The state
-  can also be set on the **Bots** page.
-- While a confirmation is unanswered, the bot **insists** every N minutes (3 by
-  default) until the person replies.
-- If nobody answers after N reminders (3 by default, about 9 minutes), the bot
-  **fires the device alarm** by publishing `ON` (blinking LED and buzzer) and
-  says so in the chat, so someone checks what is going on. Reminders keep
-  going. The first answer in the chat turns the alarm off by publishing `OFF`
-  and the flow carries on. The reminder count and commands are configurable;
-  0 disables the alarm.
+  the gate was opened or closed some other way (with the remote), or fix the
+  state when a command did not work. The state can also be set on the **Bots**
+  page.
 - Outside a conversation, the bot only reacts to the start (`/start`) or menu
   (`/menu`) command; other messages in the chat are ignored.
-- If someone else changes the state while a menu is open, the bot shows the
-  updated menu instead of running the stale option.
+- If someone else changes the state while a menu, or the options after a
+  command, are open, the bot shows the updated menu instead of running the
+  stale option. That way Try again does not undo what someone else did (a
+  relay pulse would reopen the gate they just closed).
+- After a command, messages that are neither a number nor a command are
+  ignored: the bot is not asking anything.
 - Messages sent by the paired account itself are not treated as answers,
   since the bot writes from it.
 - Saving a bot restarts its ongoing conversations.
@@ -138,7 +130,7 @@ pingzap/
 │   ├── config/             # .env: broker, databases, HTTP address
 │   ├── store/              # SQLite: users, sessions, devices, bots, conversations
 │   ├── flow/               # flow engine (state machine), no I/O
-│   ├── bot/                # routes messages to the right bot, alerts, reminders, telemetry, monitoring
+│   ├── bot/                # routes messages to the right bot, alerts, telemetry, monitoring
 │   ├── alert/              # which chats still await a reply (alert bots)
 │   ├── phone/              # Brazilian phone number normalization
 │   ├── whatsapp/           # session, QR code, contacts, groups, sending
@@ -335,5 +327,6 @@ drives a passive buzzer with a 2 kHz tone (`BUZZER_FREQ`).
   system data, `.env` has the broker passwords and `secrets.h` the setup page's.
   All of them are in `.gitignore` and must not be committed.
 - Commands are not retained by the broker: if the ESP32 is off when a command
-  is published, it does not receive it. In flow bots, the confirmation
-  question makes that visible to whoever asked.
+  is published, it does not receive it. In flow bots, whoever asked sees
+  nothing happened and uses Try again; the unresponsive-board warning also
+  alerts the chat.

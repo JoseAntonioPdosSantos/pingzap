@@ -23,25 +23,21 @@ devem usar.
 
 ```
  pessoa (WhatsApp)              pingzap                       ESP32
-    │── /start ────────────────────▶│                             │
-    │◀─ "O portão está fechado.     │                             │
-    │    *1* - Abrir o portão"      │                             │
-    │── 1 ─────────────────────────▶│── PULSE em <fila cmd> ─────▶│ pulso no relé
-    │◀─ "O portão abriu?            │                             │
-    │    *1* - Sim  *2* - Não"      │                             │
-    │── 2 ─────────────────────────▶│── PULSE (nova tentativa) ──▶│ pulso no relé
-    │◀─ "O portão abriu?" ...       │                             │
-    │   (sem resposta por 3 min)    │                             │
-    │◀─ "Ainda preciso da sua       │                             │
-    │    resposta: O portão abriu?" │                             │
-    │── 1 ─────────────────────────▶│ estado = aberto             │
-    │◀─ "Portão aberto."            │                             │
-    │── /menu ─────────────────────▶│                             │
-    │◀─ "O portão está aberto.      │                             │
+    │── /abrir ────────────────────▶│── PULSE em <fila cmd> ─────▶│ pulso no relé
+    │                               │ estado = aberto             │
+    │◀─ "Comando enviado: portão    │                             │
+    │    aberto.                    │                             │
     │    *1* - Fechar o portão      │                             │
-    │    *2* - Informar que o portão│                             │
-    │          foi fechado pelo     │                             │
-    │          controle"            │                             │
+    │    *2* - Tentar novamente"    │                             │
+    │   (o portão não abriu)        │                             │
+    │── 2 ─────────────────────────▶│── PULSE (nova tentativa) ──▶│ pulso no relé
+    │◀─ "Comando enviado novamente  │                             │
+    │    (tentativa 2). ..."        │                             │
+    │── 1 ─────────────────────────▶│── PULSE ───────────────────▶│ pulso no relé
+    │                               │ estado = fechado            │
+    │◀─ "Comando enviado: portão    │                             │
+    │    fechado.                   │                             │
+    │    *1* - Tentar novamente"    │                             │
 ```
 
 ### Regras dos bots de fluxo
@@ -50,34 +46,32 @@ devem usar.
   único por bot e compartilhado por todos os contatos e grupos dele.
 - Cada estado tem um menu numerado. Cada opção pode:
   - publicar um **comando** no tópico de comandos do dispositivo do bot;
-  - fazer uma **pergunta de confirmação** (`1` Sim / `2` Não). Com `2`, o
-    comando é publicado de novo e a pergunta se repete, até o limite de
-    **tentativas** do fluxo (0 = sem limite);
-  - **mudar o estado** quando a confirmação é `1`, ou de imediato se não houver
-    confirmação.
-- Uma opção pode ser **oferecida na confirmação** das opções que levam ao seu
-  estado, numerada depois de Sim e Não (ex.: `3` - Fechar o portão em "O portão
-  abriu?"). Escolhê-la vale como `1` e já executa a opção.
+  - **mudar o estado**.
+- O bot **confia no comando**: ao publicá-lo, já muda para o próximo estado,
+  sem perguntar se deu certo. Logo depois oferece **Tentar novamente**, que
+  publica o comando de novo sem mudar o estado, para o caso de quem pediu ver
+  que o dispositivo não agiu. As tentativas vão até o limite do fluxo
+  (0 = sem limite).
+- Uma opção pode ser **oferecida logo após os comandos** que levam ao seu
+  estado, numerada antes de Tentar novamente (ex.: depois de `/abrir`,
+  `1` - Fechar o portão e `2` - Tentar novamente; depois de `/fechar`, só
+  `1` - Tentar novamente).
 - Uma opção pode ter um **atalho** (ex.: `/abrir`, `/fechar`) que a executa
-  direto, sem passar pelo menu, seguindo a mesma confirmação, tentativas e
-  lembretes. O atalho só vale no estado em que a opção existe: `/abrir` com o
-  portão já aberto responde com o menu atual. O menu mostra o atalho ao lado de
-  cada opção.
+  direto, sem passar pelo menu. O atalho só vale no estado em que a opção
+  existe: `/abrir` com o portão já aberto responde com o menu atual. O menu
+  mostra o atalho ao lado de cada opção.
 - Uma opção sem comando só muda o estado. É assim que se informa que o portão
-  foi aberto ou fechado por fora (pelo controle). O estado também pode ser
-  ajustado na página **Bots**.
-- Sem resposta à confirmação, o bot **insiste** a cada N minutos (3 por padrão)
-  até a pessoa responder.
-- Se ninguém responder depois de N lembretes (3 por padrão, ou seja, cerca de
-  9 minutos), o bot **aciona o alarme** do dispositivo, publicando `ON` (LED
-  piscando e buzzer), e avisa no chat para alguém verificar o que está
-  acontecendo. Os lembretes continuam. A primeira resposta no chat desliga o
-  alarme, publicando `OFF`, e segue o fluxo normalmente. O número de lembretes
-  e os comandos são configuráveis; 0 desativa o alarme.
+  foi aberto ou fechado por fora (pelo controle), ou se corrige o estado
+  quando o comando não funcionou. O estado também pode ser ajustado na página
+  **Bots**.
 - Fora de uma conversa, o bot só reage ao comando de início (`/start`) ou de
   menu (`/menu`). As demais mensagens do chat são ignoradas.
-- Se outra pessoa mudar o estado enquanto alguém está com o menu aberto, o bot
-  mostra o menu atualizado em vez de executar a opção antiga.
+- Se outra pessoa mudar o estado enquanto alguém está com o menu ou com as
+  opções de depois do comando abertos, o bot mostra o menu atualizado em vez
+  de executar a opção antiga. Assim "Tentar novamente" não desfaz o que outra
+  pessoa fez (um pulso no relé abriria o portão que ela acabou de fechar).
+- Depois de um comando, mensagens que não são número nem comando são
+  ignoradas: o bot não está perguntando nada.
 - Mensagens enviadas pela própria conta pareada não são tratadas como
   respostas, porque o bot escreve a partir dela.
 - Salvar um bot reinicia as conversas em andamento dele.
@@ -139,7 +133,7 @@ pingzap/
 │   ├── config/             # .env: broker, bancos, endereço HTTP
 │   ├── store/              # SQLite: usuários, sessões, dispositivos, bots, conversas
 │   ├── flow/               # motor de fluxo (máquina de estados), sem I/O
-│   ├── bot/                # roteia mensagens ao bot certo, alertas, lembretes, telemetria, monitoramento
+│   ├── bot/                # roteia mensagens ao bot certo, alertas, telemetria, monitoramento
 │   ├── alert/              # quais chats ainda aguardam resposta (bots de alerta)
 │   ├── phone/              # normalização de números brasileiros
 │   ├── whatsapp/           # sessão, QR code, contatos, grupos, envio
@@ -335,5 +329,6 @@ um buzzer passivo com um tom de 2 kHz (`BUZZER_FREQ`).
   sistema, o `.env` tem as senhas do broker e o `secrets.h` a da página de configuração. Todos
   estão no `.gitignore` e não devem ser versionados.
 - Os comandos não são retidos no broker: se o ESP32 estiver desligado quando o
-  comando for publicado, ele não o recebe. Nos bots de fluxo, a pergunta de
-  confirmação deixa isso visível para quem pediu.
+  comando for publicado, ele não o recebe. Nos bots de fluxo, quem pediu vê
+  que nada aconteceu e usa Tentar novamente; o aviso de placa sem resposta
+  também alerta o chat.
