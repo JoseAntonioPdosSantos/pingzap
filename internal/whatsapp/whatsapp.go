@@ -51,6 +51,10 @@ func isStale(sent, now time.Time) bool {
 	return now.Sub(sent) > maxMessageAge
 }
 
+// maxReconnectErrors caps whatsmeow's reconnect backoff (2 s per failed
+// attempt) at one minute between attempts.
+const maxReconnectErrors = 30
+
 type State string
 
 const (
@@ -306,6 +310,17 @@ func (m *Manager) Groups(ctx context.Context) ([]Group, error) {
 
 func (m *Manager) newClient(device *store.Device) *whatsmeow.Client {
 	client := whatsmeow.NewClient(device, waLog.Noop)
+	// A paired session keeps trying when the first connection fails (e.g. the
+	// network or DNS is not up yet at boot) instead of staying offline until
+	// someone restarts the service. Not while pairing: there a failure must
+	// reach the user, who asks for a new QR code.
+	client.InitialAutoReconnect = device.ID != nil
+	client.AutoReconnectHook = func(err error) bool {
+		log.Printf("WhatsApp connection failed (attempt %d), retrying: %v", client.AutoReconnectErrors, err)
+		// whatsmeow waits 2 s per failed attempt; cap the wait.
+		client.AutoReconnectErrors = min(client.AutoReconnectErrors, maxReconnectErrors)
+		return true
+	}
 	client.AddEventHandler(func(evt any) { m.handleEvent(client, evt) })
 	return client
 }
