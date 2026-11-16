@@ -21,6 +21,10 @@ type Config struct {
 	MQTT MQTT
 	// HTTPAddr is where the web interface and the API listen.
 	HTTPAddr string
+	// PublicURL is the address people reach the web interface at, used to
+	// build the web remote links (e.g. "https://portao.example.com"). The
+	// web remote stays off while it is empty.
+	PublicURL string
 	// DB is the SQLite DSN of the pingzap data (users, devices, bots).
 	DB string
 	// WhatsAppDB is the SQLite DSN holding the WhatsApp session.
@@ -69,6 +73,7 @@ func Load() (Config, error) {
 			Password:  os.Getenv("PINGZAP_MQTT_PASSWORD"),
 		},
 		HTTPAddr:   env("PINGZAP_HTTP_ADDR", ":8080"),
+		PublicURL:  strings.TrimRight(env("PINGZAP_PUBLIC_URL", ""), "/"),
 		DB:         env("PINGZAP_DB", "file:pingzap.db?_foreign_keys=on"),
 		WhatsAppDB: env("PINGZAP_WHATSAPP_DB", "file:whatsapp.db?_foreign_keys=on"),
 		Influx: Influx{

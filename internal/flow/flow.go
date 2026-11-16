@@ -20,11 +20,15 @@ type Flow struct {
 	// e.g. "/start" and "/menu".
 	StartCommand string `json:"start_command"`
 	MenuCommand  string `json:"menu_command"`
-	// MaxAttempts limits how many times a command is sent, counting the
-	// retries; 0 means no limit.
-	MaxAttempts int     `json:"max_attempts"`
-	States      []State `json:"states"`
+	// RemoteCommand (e.g. "/controle") sends the person the link to their
+	// web remote. It is also the last option of every menu. Empty turns the
+	// web remote off.
+	RemoteCommand string  `json:"remote_command,omitempty"`
+	States        []State `json:"states"`
 }
+
+// RemoteLabel is the menu option that sends the web remote link.
+const RemoteLabel = "Receber o controle remoto web no privado"
 
 type State struct {
 	ID   string `json:"id"`
@@ -82,16 +86,18 @@ type Result struct {
 	// Publish lists the commands to send to the device, in order.
 	Publish []string
 	// NewState is the state the bot moves to, if it changes.
-	NewState     string
+	NewState string
+	// Remote asks the caller to send the person their web remote link.
+	Remote       bool
 	Conversation Conversation
 }
 
 // GateTemplate is a ready-made flow for a gate driven by a relay pulse.
 func GateTemplate() Flow {
 	return Flow{
-		StartCommand: "/start",
-		MenuCommand:  "/menu",
-		MaxAttempts:  3,
+		StartCommand:  "/start",
+		MenuCommand:   "/menu",
+		RemoteCommand: "/controle",
 		States: []State{
 			{
 				ID:   "fechado",
@@ -121,11 +127,16 @@ func (f Flow) Validate() error {
 	if strings.TrimSpace(f.StartCommand) == "" && strings.TrimSpace(f.MenuCommand) == "" {
 		return errors.New("defina ao menos um comando para abrir o menu")
 	}
-	if f.MaxAttempts < 0 {
-		return errors.New("o máximo de tentativas não pode ser negativo")
-	}
 	if len(f.States) == 0 {
 		return errors.New("o fluxo precisa de ao menos um estado")
+	}
+	if f.RemoteCommand != "" {
+		if !isCommand(f.RemoteCommand) {
+			return fmt.Errorf("o comando do controle remoto %q precisa começar com / e não ter espaços", f.RemoteCommand)
+		}
+		if f.isMenuCommand(f.RemoteCommand) {
+			return fmt.Errorf("o comando do controle remoto %q é igual a um comando de menu", f.RemoteCommand)
+		}
 	}
 	ids := make(map[string]bool)
 	for _, s := range f.States {
@@ -156,19 +167,28 @@ func (f Flow) Validate() error {
 	return nil
 }
 
+// isCommand reports whether text is a single word starting with "/".
+func isCommand(text string) bool {
+	return strings.HasPrefix(text, "/") && len(text) >= 2 && !strings.ContainsAny(text, " \t\n")
+}
+
 // validateShortcut checks an option's shortcut: a single word starting with
-// "/", not clashing with the menu commands or another option of the same
-// state. The same shortcut may appear in different states.
+// "/", not clashing with the menu commands, the web remote command or
+// another option of the same state. The same shortcut may appear in
+// different states.
 func (f Flow) validateShortcut(s State, index int) error {
 	o := s.Options[index]
 	if o.Shortcut == "" {
 		return nil
 	}
-	if !strings.HasPrefix(o.Shortcut, "/") || len(o.Shortcut) < 2 || strings.ContainsAny(o.Shortcut, " \t\n") {
+	if !isCommand(o.Shortcut) {
 		return fmt.Errorf("o atalho %q da opção %q precisa começar com / e não ter espaços", o.Shortcut, o.Label)
 	}
 	if f.isMenuCommand(o.Shortcut) {
 		return fmt.Errorf("o atalho %q é igual a um comando de menu", o.Shortcut)
+	}
+	if f.isRemoteCommand(o.Shortcut) {
+		return fmt.Errorf("o atalho %q é igual ao comando do controle remoto", o.Shortcut)
 	}
 	for j, other := range s.Options {
 		if j != index && strings.EqualFold(other.Shortcut, o.Shortcut) {
@@ -199,6 +219,10 @@ func (f Flow) Handle(current string, c Conversation, text string) (Result, bool)
 	if f.isMenuCommand(text) {
 		return f.showMenu(state), true
 	}
+	if f.isRemoteCommand(text) {
+		// The link goes out without disturbing the conversation in the chat.
+		return Result{Remote: true, Conversation: c}, true
+	}
 	if r, ok := f.shortcut(state, text); ok {
 		return r, true
 	}
@@ -212,6 +236,9 @@ func (f Flow) Handle(current string, c Conversation, text string) (Result, bool)
 			return r, true
 		}
 		n, err := strconv.Atoi(text)
+		if err == nil && f.RemoteCommand != "" && n == len(state.Options)+1 {
+			return Result{Remote: true}, true
+		}
 		if err != nil || n < 1 || n > len(state.Options) {
 			r := f.showMenu(state)
 			r.Replies[0] = "Opção inválida.\n\n" + r.Replies[0]
@@ -249,21 +276,15 @@ func (f Flow) afterCommand(state State, c Conversation, text string) (Result, bo
 	switch {
 	case n >= 1 && n <= len(extras):
 		return f.choose(next, extras[n-1]), true
-	case n == len(extras)+1 && f.canRetry(c.Attempts):
+	case n == len(extras)+1:
 		c.Attempts++
-		prompt, more := f.afterCommandPrompt(opt, c.Attempts)
-		r := Result{
-			Replies:      []string{fmt.Sprintf("Comando enviado novamente (tentativa %d).\n\n%s", c.Attempts, prompt)},
+		return Result{
+			Replies:      []string{fmt.Sprintf("Comando enviado novamente (tentativa %d).\n\n%s", c.Attempts, f.afterCommandPrompt(opt))},
 			Publish:      []string{opt.Command},
 			Conversation: c,
-		}
-		if !more {
-			r.Conversation = Conversation{}
-		}
-		return r, true
+		}, true
 	}
-	prompt, _ := f.afterCommandPrompt(opt, c.Attempts)
-	return Result{Replies: []string{"Opção inválida.\n\n" + prompt}, Conversation: c}, true
+	return Result{Replies: []string{"Opção inválida.\n\n" + f.afterCommandPrompt(opt)}, Conversation: c}, true
 }
 
 func (f Flow) isMenuCommand(text string) bool {
@@ -275,11 +296,8 @@ func (f Flow) isMenuCommand(text string) bool {
 	return false
 }
 
-func (f Flow) menuHint() string {
-	if f.MenuCommand != "" {
-		return f.MenuCommand
-	}
-	return f.StartCommand
+func (f Flow) isRemoteCommand(text string) bool {
+	return f.RemoteCommand != "" && strings.EqualFold(text, f.RemoteCommand)
 }
 
 // shortcut runs the option of the current state whose shortcut is text. A
@@ -319,6 +337,9 @@ func (f Flow) showMenu(s State) Result {
 			fmt.Fprintf(&b, " (%s)", o.Shortcut)
 		}
 	}
+	if f.RemoteCommand != "" {
+		fmt.Fprintf(&b, "\n*%d* - %s (%s)", len(s.Options)+1, RemoteLabel, f.RemoteCommand)
+	}
 	return Result{
 		Replies:      []string{b.String()},
 		Conversation: Conversation{Step: StepMenu, StateID: s.ID},
@@ -334,11 +355,7 @@ func (f Flow) choose(s State, index int) Result {
 		return r
 	}
 	r.Publish = []string{opt.Command}
-	prompt, ok := f.afterCommandPrompt(opt, 1)
-	if !ok {
-		return r
-	}
-	r.Replies[0] += "\n\n" + prompt
+	r.Replies[0] += "\n\n" + f.afterCommandPrompt(opt)
 	r.Conversation = Conversation{Step: StepSent, StateID: s.ID, Option: index, Attempts: 1}
 	return r
 }
@@ -354,25 +371,25 @@ func (f Flow) succeed(opt Option) Result {
 	return Result{Replies: []string{reply}, NewState: opt.NextState}
 }
 
-// option returns the option whose command was sent, if it still exists.
-func (f Flow) option(c Conversation) (Option, bool) {
+// Option returns the option at index of the state with the given ID.
+func (f Flow) Option(stateID string, index int) (Option, bool) {
 	for _, s := range f.States {
-		if s.ID == c.StateID && c.Option >= 0 && c.Option < len(s.Options) {
-			opt := s.Options[c.Option]
-			return opt, opt.Command != ""
+		if s.ID == stateID && index >= 0 && index < len(s.Options) {
+			return s.Options[index], true
 		}
 	}
 	return Option{}, false
 }
 
-// canRetry reports whether the command may be sent again after attempts.
-func (f Flow) canRetry(attempts int) bool {
-	return f.MaxAttempts == 0 || attempts < f.MaxAttempts
+// option returns the option whose command was sent, if it still exists.
+func (f Flow) option(c Conversation) (Option, bool) {
+	opt, ok := f.Option(c.StateID, c.Option)
+	return opt, ok && opt.Command != ""
 }
 
-// afterCommandPrompt lists the options offered after o's command was sent
-// attempts times. It reports false when there is none to offer.
-func (f Flow) afterCommandPrompt(o Option, attempts int) (string, bool) {
+// afterCommandPrompt lists the options offered after o's command was sent:
+// those marked ShowAfterCommand, then "try again", which has no limit.
+func (f Flow) afterCommandPrompt(o Option) string {
 	next, extras := f.extras(o)
 	var b strings.Builder
 	b.WriteString("Digite o número da opção:")
@@ -383,15 +400,8 @@ func (f Flow) afterCommandPrompt(o Option, attempts int) (string, bool) {
 			fmt.Fprintf(&b, " (%s)", e.Shortcut)
 		}
 	}
-	if f.canRetry(attempts) {
-		fmt.Fprintf(&b, "\n*%d* - Tentar novamente", len(extras)+1)
-	} else {
-		if len(extras) == 0 {
-			return fmt.Sprintf("Limite de %d tentativa(s) atingido. Se não funcionou, verifique o dispositivo; pelo %s você corrige o estado.", attempts, f.menuHint()), false
-		}
-		fmt.Fprintf(&b, "\n(limite de %d tentativa(s) atingido)", attempts)
-	}
-	return b.String(), true
+	fmt.Fprintf(&b, "\n*%d* - Tentar novamente", len(extras)+1)
+	return b.String()
 }
 
 // extras returns the state o leads to and the indexes of its options

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.mau.fi/whatsmeow/types"
@@ -22,10 +23,26 @@ func (f *fakeMQTT) Publish(topic, payload string) error {
 }
 func (f *fakeMQTT) SetSubscriptions([]string) {}
 
-type fakeSender struct{ sent []string }
+type fakeSender struct {
+	mu   sync.Mutex
+	sent []string
+	// to lists the chat of each message in sent.
+	to []string
+	// members is who GroupMembers says is in any group; membersErr makes it
+	// fail, as when WhatsApp is offline.
+	members    []string
+	membersErr error
+}
 
-func (f *fakeSender) SendText(_ context.Context, _ types.JID, text string) error {
+func (f *fakeSender) GroupMembers(context.Context, string) ([]string, error) {
+	return f.members, f.membersErr
+}
+
+func (f *fakeSender) SendText(_ context.Context, chat types.JID, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sent = append(f.sent, text)
+	f.to = append(f.to, chat.String())
 	return nil
 }
 
@@ -53,8 +70,8 @@ func setup(t *testing.T, kind string, cfg any) (*Service, *store.Store, *fakeMQT
 	if err != nil {
 		t.Fatal(err)
 	}
-	mq, wa := &fakeMQTT{}, &fakeSender{}
-	s := New(st, mq, wa, nil)
+	mq, wa := &fakeMQTT{}, &fakeSender{members: []string{"5567911111111", "5567922222222"}}
+	s := New(st, mq, wa, nil, "https://portao.example")
 	if err := s.Reload(); err != nil {
 		t.Fatal(err)
 	}

@@ -30,7 +30,8 @@ export type FlowState = { id: string; name: string; menu: string; options: FlowO
 export type Flow = {
   start_command: string
   menu_command: string
-  max_attempts: number
+  // Empty or absent turns the web remote off.
+  remote_command?: string
   states: FlowState[]
 }
 export type AlertConfig = { keyword: string; on_payload: string; off_payload: string }
@@ -46,6 +47,17 @@ export type Bot = {
   current_state: string
   targets: Target[]
 }
+
+export type RemoteLink = {
+  id: number
+  phone: string
+  name: string
+  created_at: string
+  last_used?: string
+  uses: number
+}
+export type RemoteUse = { phone: string; name: string; action: string; command: string; state: string; at: string }
+export type BotRemote = { links: RemoteLink[]; uses: RemoteUse[] }
 
 export type WhatsAppState = 'disconnected' | 'connecting' | 'pairing' | 'connected'
 export type WhatsAppStatus = { state: WhatsAppState; phone: string; qr_image?: string }
