@@ -6,6 +6,7 @@ import {
   type AlertConfig,
   type Bot,
   type BotKind,
+  type BotRemote,
   type Contact,
   type Device,
   type Flow,
@@ -22,7 +23,6 @@ const emptyOption = (): FlowOption => ({ label: '', shortcut: '', command: '', n
 const blankFlow = (): Flow => ({
   start_command: '/start',
   menu_command: '/menu',
-  max_attempts: 3,
   states: [{ id: newId(), name: 'Inicial', menu: '', options: [emptyOption()] }],
 })
 
@@ -152,6 +152,8 @@ export default function BotEditor() {
       ) : (
         <AlertEditor config={bot.config as AlertConfig} onChange={(config) => update({ config })} />
       )}
+
+      {!isNew && bot.kind === 'flow' && <RemotePanel botId={bot.id} />}
 
       {!isNew && (
         <p className="muted">Salvar reinicia as conversas em andamento deste bot.</p>
@@ -316,14 +318,16 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
         </div>
         <div className="inline">
           <label>
-            Máximo de tentativas
+            Comando do controle remoto web
             <input
-              type="number"
-              min={0}
-              value={flow.max_attempts}
-              onChange={(e) => onChange({ ...flow, max_attempts: Number(e.target.value) })}
+              value={flow.remote_command ?? ''}
+              placeholder="ex.: /controle"
+              onChange={(e) => onChange({ ...flow, remote_command: e.target.value.trim() })}
             />
-            <small className="muted">Envios do comando, contando os de "Tentar novamente". 0 = sem limite.</small>
+            <small className="muted">
+              Vira a última opção de todo menu: a pessoa recebe no privado um link pessoal com os comandos em botões.
+              Vazio = desligado.
+            </small>
           </label>
         </div>
         <p className="muted">
@@ -338,6 +342,7 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
           key={s.id}
           state={s}
           states={flow.states}
+          remoteCommand={flow.remote_command ?? ''}
           onChange={(st) => setState(i, st)}
           onRemove={flow.states.length > 1 ? () => removeState(i) : undefined}
         />
@@ -352,11 +357,12 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
 type StateProps = {
   state: FlowState
   states: FlowState[]
+  remoteCommand: string
   onChange: (s: FlowState) => void
   onRemove?: () => void
 }
 
-function StateEditor({ state, states, onChange, onRemove }: StateProps) {
+function StateEditor({ state, states, remoteCommand, onChange, onRemove }: StateProps) {
   const setOption = (i: number, o: FlowOption) => onChange({ ...state, options: state.options.map((x, j) => (j === i ? o : x)) })
 
   const move = (i: number, delta: number) => {
@@ -472,7 +478,7 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
             Adicionar opção
           </button>
         </div>
-        <MenuPreview state={state} />
+        <MenuPreview state={state} remoteCommand={remoteCommand} />
       </div>
     </div>
   )
@@ -480,13 +486,114 @@ function StateEditor({ state, states, onChange, onRemove }: StateProps) {
 
 // MenuPreview shows the message the bot sends for this state, as built by
 // the server (internal/flow).
-function MenuPreview({ state }: { state: FlowState }) {
+function MenuPreview({ state, remoteCommand }: { state: FlowState; remoteCommand: string }) {
   const lines = state.options.map((o, i) => `*${i + 1}* - ${o.label || '…'}${o.shortcut ? ` (${o.shortcut})` : ''}`)
+  if (remoteCommand) lines.push(`*${lines.length + 1}* - Receber o controle remoto web no privado (${remoteCommand})`)
   const text = `${state.menu ? state.menu + '\n\n' : ''}Digite o número da opção:\n${lines.join('\n')}`
   return (
     <div className="preview">
       <small className="muted">Prévia no WhatsApp</small>
       <div className="bubble">{text}</div>
+    </div>
+  )
+}
+
+const dateTime = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+
+// RemotePanel lists who has a web remote of the bot and what was done
+// through them. Revoking a link makes it stop working; the person gets a new
+// one the next time they ask the bot.
+function RemotePanel({ botId }: { botId: number }) {
+  const [data, setData] = useState<BotRemote | null>(null)
+  const [error, setError] = useState('')
+
+  const load = () =>
+    api<BotRemote>(`/api/bots/${botId}/remote`)
+      .then(setData)
+      .catch((e) => setError(errorMessage(e)))
+
+  useEffect(() => {
+    load()
+  }, [botId])
+
+  const revoke = async (id: number, name: string) => {
+    if (!confirm(`Revogar o controle remoto de ${name}? O link atual deixa de funcionar.`)) return
+    try {
+      await api(`/api/bots/${botId}/remote/${id}`, 'DELETE')
+      load()
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <div className="card form">
+      <h3>Controle remoto web</h3>
+      {error && <p className="error">{error}</p>}
+      {data?.links.length === 0 && (
+        <p className="muted">Ninguém pediu o controle remoto ainda. O link é enviado pelo bot, no privado de quem pede.</p>
+      )}
+      {data && data.links.length > 0 && (
+        <div className="scroll-x">
+          <table>
+            <thead>
+              <tr>
+                <th>Pessoa</th>
+                <th>Número</th>
+                <th>Criado em</th>
+                <th>Último uso</th>
+                <th>Usos</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {data.links.map((l) => (
+                <tr key={l.id}>
+                  <td>{l.name}</td>
+                  <td>+{l.phone}</td>
+                  <td>{dateTime(l.created_at)}</td>
+                  <td>{l.last_used ? dateTime(l.last_used) : '—'}</td>
+                  <td>{l.uses}</td>
+                  <td className="actions">
+                    <button type="button" className="link danger" onClick={() => revoke(l.id, l.name)}>
+                      revogar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data && data.uses.length > 0 && (
+        <details>
+          <summary>Últimos usos ({data.uses.length})</summary>
+          <div className="scroll-x">
+            <table>
+              <thead>
+                <tr>
+                  <th>Quando</th>
+                  <th>Pessoa</th>
+                  <th>Ação</th>
+                  <th>Estado depois</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.uses.map((u, i) => (
+                  <tr key={i}>
+                    <td>{dateTime(u.at)}</td>
+                    <td>
+                      {u.name} <span className="muted">+{u.phone}</span>
+                    </td>
+                    <td>{u.action}</td>
+                    <td>{u.state}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
     </div>
   )
 }

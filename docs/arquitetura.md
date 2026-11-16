@@ -132,7 +132,7 @@ sequenceDiagram
     B->>P: "Comando enviado: portão aberto. 1 - Fechar o portão, 2 - Tentar novamente"
     opt o portão não abriu
         P->>B: 2
-        B->>M: PULSE (nova tentativa, até o limite)
+        B->>M: PULSE (nova tentativa)
         B->>P: "Comando enviado novamente (tentativa 2)"
     end
 ```
@@ -153,8 +153,8 @@ stateDiagram-v2
 
     note right of aberto
         o bot não pergunta se deu certo;
-        Tentar novamente vai até o limite de tentativas
-        e não roda se outra pessoa mudou o estado
+        Tentar novamente não tem limite, mas não roda
+        se outra pessoa mudou o estado
     end note
 ```
 
@@ -206,9 +206,9 @@ sequenceDiagram
 |---|---|
 | `cmd/pingzap` | ponto de entrada: liga store, MQTT, WhatsApp, bots, métricas e HTTP |
 | `internal/whatsapp` | conexão whatsmeow, QR code, contatos e grupos, envio |
-| `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, telemetria, monitoramento das placas |
+| `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, telemetria, monitoramento das placas, controle remoto web |
 | `internal/flow` | máquina de estados pura (menus, atalhos, tentar novamente) |
-| `internal/store` | SQLite: usuários, sessões, dispositivos, bots, conversas |
+| `internal/store` | SQLite: usuários, sessões, dispositivos, bots, conversas, links e histórico do controle remoto web |
 | `internal/web` + `web/` | API em Go e interface em React (embutida no binário) |
 | `internal/mqtt` | cliente MQTT com reconexão e assinaturas dinâmicas |
 | `internal/metrics` | envio da telemetria ao InfluxDB (line protocol, em lote) |

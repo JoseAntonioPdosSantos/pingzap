@@ -1,6 +1,6 @@
 // Package web serves the management interface (a React app embedded in the
 // binary) and its JSON API, plus the endpoint the ESP32 uses to fetch its
-// MQTT topics.
+// MQTT topics and the web remotes people open from their personal links.
 package web
 
 import (
@@ -70,13 +70,20 @@ func New(st *store.Store, bots *bot.Service, wa WhatsApp) http.Handler {
 	s.handle("PUT /api/bots/{id}", s.updateBot)
 	s.handle("DELETE /api/bots/{id}", s.deleteBot)
 	s.handle("PUT /api/bots/{id}/state", s.setBotState)
+	s.handle("GET /api/bots/{id}/remote", s.botRemote)
+	s.handle("DELETE /api/bots/{id}/remote/{link}", s.revokeRemote)
 	s.handle("GET /api/templates/gate", s.gateTemplate)
+
+	s.mux.HandleFunc("GET /api/remote/{token}", s.remoteView)
+	s.mux.HandleFunc("POST /api/remote/{token}", s.remoteAct)
 
 	s.mux.HandleFunc("GET /api/device/config", s.deviceConfig)
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "rota não encontrada")
 	})
-	s.mux.Handle("/", spa())
+	app := spa()
+	s.mux.Handle("GET /c/{token}", remotePage(app))
+	s.mux.Handle("/", app)
 
 	return s.csrf(s.mux)
 }

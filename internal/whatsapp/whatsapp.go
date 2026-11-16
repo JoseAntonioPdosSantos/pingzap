@@ -37,6 +37,11 @@ type Message struct {
 	Phone  string
 	FromMe bool
 	Text   string
+	// Sender is the number of whoever wrote the message (mine when FromMe),
+	// also in groups; empty when WhatsApp does not reveal it. SenderName is
+	// the name they show on WhatsApp.
+	Sender     string
+	SenderName string
 }
 
 func (m Message) IsGroup() bool { return m.Group != "" }
@@ -308,6 +313,30 @@ func (m *Manager) Groups(ctx context.Context) ([]Group, error) {
 	return groups, nil
 }
 
+// GroupMembers returns the phone numbers of the people in a group. Members
+// whose number WhatsApp does not reveal are left out.
+func (m *Manager) GroupMembers(ctx context.Context, group string) ([]string, error) {
+	client, err := m.connected()
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(group)
+	if err != nil {
+		return nil, err
+	}
+	info, err := client.GetGroupInfo(ctx, jid)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]string, 0, len(info.Participants))
+	for _, p := range info.Participants {
+		if number := phoneOf(client, p.PhoneNumber, p.JID, p.LID); number != "" {
+			members = append(members, number)
+		}
+	}
+	return members, nil
+}
+
 func (m *Manager) newClient(device *store.Device) *whatsmeow.Client {
 	client := whatsmeow.NewClient(device, waLog.Noop)
 	// A paired session keeps trying when the first connection fails (e.g. the
@@ -357,8 +386,15 @@ func (m *Manager) setState(client *whatsmeow.Client, state State) {
 }
 
 func (m *Manager) toMessage(client *whatsmeow.Client, e *events.Message) (Message, bool) {
-	text := messageText(e)
-	msg := Message{Chat: e.Info.Chat, FromMe: e.Info.IsFromMe, Text: text}
+	msg := Message{Chat: e.Info.Chat, FromMe: e.Info.IsFromMe, Text: messageText(e), SenderName: e.Info.PushName}
+	if e.Info.IsFromMe {
+		if id := client.Store.ID; id != nil {
+			msg.Sender = id.User
+		}
+		msg.SenderName = firstNonEmpty(client.Store.PushName, msg.SenderName)
+	} else {
+		msg.Sender = phoneOf(client, e.Info.Sender, e.Info.SenderAlt)
+	}
 	if e.Info.IsGroup {
 		msg.Group = e.Info.Chat.ToNonAD().String()
 		return msg, true
@@ -368,12 +404,20 @@ func (m *Manager) toMessage(client *whatsmeow.Client, e *events.Message) (Messag
 	}
 	// In one-to-one chats the other party is the chat for my messages and
 	// the sender for theirs; either may come as a LID.
-	candidates := []types.JID{e.Info.Chat, e.Info.SenderAlt}
+	other := e.Info.SenderAlt
 	if e.Info.IsFromMe {
-		candidates = []types.JID{e.Info.Chat, e.Info.RecipientAlt}
+		other = e.Info.RecipientAlt
 	}
+	msg.Phone = phoneOf(client, e.Info.Chat, other)
+	return msg, msg.Phone != ""
+}
+
+// phoneOf returns the phone number behind the first JID that has one,
+// resolving the LIDs WhatsApp uses to hide numbers. It returns "" when none
+// of them leads to a number.
+func phoneOf(client *whatsmeow.Client, jids ...types.JID) string {
 	ctx := context.Background()
-	for _, jid := range candidates {
+	for _, jid := range jids {
 		if jid.IsEmpty() {
 			continue
 		}
@@ -385,11 +429,10 @@ func (m *Manager) toMessage(client *whatsmeow.Client, e *events.Message) (Messag
 			jid = pn
 		}
 		if jid.Server == types.DefaultUserServer {
-			msg.Phone = jid.User
-			return msg, true
+			return jid.User
 		}
 	}
-	return Message{}, false
+	return ""
 }
 
 // messageText returns the message text or the media caption.

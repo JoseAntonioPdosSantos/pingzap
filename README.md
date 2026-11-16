@@ -51,8 +51,8 @@ template ships in Portuguese.
 - The bot **trusts the command**: once it is published, the bot moves to the
   next state without asking whether it worked. Right after, it offers **Try
   again** (Tentar novamente), which publishes the command again without
-  changing the state, in case the person sees the device did not act. Attempts
-  go up to the flow's limit (0 = unlimited).
+  changing the state, in case the person sees the device did not act. There
+  is no limit of attempts.
 - An option may be **offered right after the commands** that lead to its
   state, numbered before Try again (e.g. after `/abrir`, `1` - Fechar o portão
   and `2` - Tentar novamente; after `/fechar`, only `1` - Tentar novamente).
@@ -80,6 +80,41 @@ template ships in Portuguese.
   delivers what arrived while it was offline; those messages are discarded
   so old commands, such as `/abrir`, do not pulse the gate again. Anyone who
   wrote during the outage must send the command again.
+
+### Web remote
+
+So nobody has to type commands, each person can have a **remote control** in
+the browser: a page made for phones, with the bot's commands as buttons.
+
+- In the bot editor, the **web remote command** field (e.g. `/controle`)
+  turns the feature on. It becomes the last option of every menu (`/menu`)
+  and also works when typed directly.
+- Whoever asks gets the link in a **private chat**; the group is only told
+  the link was sent. The link is personal (one per person and bot): asking
+  again returns the same link.
+- The address carries a random 192-bit code, which is the credential: there
+  is no login. Whoever has the link acts as its owner, so it must not be
+  shared.
+- The buttons send the same commands as the menu options and follow the same
+  rules: only those of the current state work, the state changes right away,
+  the command can be sent again and the state can
+  be corrected. A repeated tap or an outdated page does not pulse the relay
+  twice.
+- **Every use is recorded** (who, what and when) and **announced in the
+  chat** where the link was requested. The history and the list of people
+  with a remote are in the bot editor, where a link can be **revoked**.
+- **Only people in the group use the remote.** A link requested in a group
+  checks, on every use, that its owner is still a member (the WhatsApp list
+  is fetched at most once a minute). Whoever leaves or is removed loses
+  access within 1 minute; if they come back, the same link works again. If
+  WhatsApp stays disconnected for more than 15 minutes, the group's remotes
+  wait until it is back, since membership can not be confirmed.
+- The link also stops working if it is revoked, if the bot is disabled or
+  removed, if the remote command is cleared or if the group where it was
+  requested leaves the bot.
+- Links are built on `PINGZAP_PUBLIC_URL` (see the configuration). Without
+  it the web remote is off. Outside the local network, serve pingzap behind
+  **HTTPS**, so the code in the link does not travel in the clear.
 
 ### Alert bot rules
 
@@ -221,6 +256,7 @@ web.
 | `ESP32_MQTT_USERNAME`   | —                                    | ESP32 username, created on the local broker by compose. |
 | `ESP32_MQTT_PASSWORD`   | —                                    | ESP32 password on the local broker. |
 | `PINGZAP_HTTP_ADDR`     | `:8080`                              | Address of the web interface and API. |
+| `PINGZAP_PUBLIC_URL`    | empty                                | Address people reach pingzap at (e.g. `https://gate.example.com` or `http://192.168.0.5:8080`), used in the web remote links; empty turns the remote off. |
 | `PINGZAP_DB`            | `file:pingzap.db?_foreign_keys=on`   | Database with users, devices and bots. |
 | `PINGZAP_WHATSAPP_DB`   | `file:whatsapp.db?_foreign_keys=on`  | Database with the WhatsApp session. |
 | `INFLUXDB_PASSWORD`     | —                                    | InfluxDB `admin` password (compose). |

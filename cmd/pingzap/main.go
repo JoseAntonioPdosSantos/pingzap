@@ -55,7 +55,10 @@ func main() {
 		go m.Run(ctx)
 		sink = m
 	}
-	bots = bot.New(st, mq, wa, sink)
+	bots = bot.New(st, mq, wa, sink, cfg.PublicURL)
+	if cfg.PublicURL == "" {
+		log.Println("PINGZAP_PUBLIC_URL not set; the web remote is off")
+	}
 	if err := bots.Reload(); err != nil {
 		log.Fatalf("load bots: %v", err)
 	}

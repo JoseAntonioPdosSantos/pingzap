@@ -50,8 +50,7 @@ devem usar.
 - O bot **confia no comando**: ao publicá-lo, já muda para o próximo estado,
   sem perguntar se deu certo. Logo depois oferece **Tentar novamente**, que
   publica o comando de novo sem mudar o estado, para o caso de quem pediu ver
-  que o dispositivo não agiu. As tentativas vão até o limite do fluxo
-  (0 = sem limite).
+  que o dispositivo não agiu. Não há limite de tentativas.
 - Uma opção pode ser **oferecida logo após os comandos** que levam ao seu
   estado, numerada antes de Tentar novamente (ex.: depois de `/abrir`,
   `1` - Fechar o portão e `2` - Tentar novamente; depois de `/fechar`, só
@@ -81,6 +80,43 @@ devem usar.
   mensagens são descartadas para que comandos antigos, como `/abrir`, não
   pulsem o portão de novo. Quem escreveu durante a queda precisa mandar o
   comando outra vez.
+
+### Controle remoto web
+
+Para não precisar digitar comandos, cada pessoa pode ter um **controle remoto**
+no navegador: uma página feita para o celular, com os comandos do bot em
+botões.
+
+- No editor do bot, o campo **Comando do controle remoto web** (ex.:
+  `/controle`) liga o recurso. Ele vira a última opção de todo menu
+  (`/menu`) e também funciona digitado direto.
+- Quem pede recebe o link numa **conversa privada**; o grupo só é avisado de
+  que o link foi enviado. O link é pessoal (um por pessoa e por bot): pedir de
+  novo devolve o mesmo link.
+- O endereço carrega um código aleatório de 192 bits, que é a credencial: não
+  há login. Quem tem o link age em nome do dono dele, então ele não deve ser
+  compartilhado.
+- Os botões enviam os mesmos comandos das opções do menu e seguem as mesmas
+  regras: só valem os do estado atual, o estado muda na hora, dá para enviar
+  o comando de novo e corrigir o estado. Um
+  toque repetido ou uma página desatualizada não pulsa o relé duas vezes.
+- **Cada uso é registrado** (quem, o quê e quando) e **avisado no chat** onde
+  o link foi pedido. O histórico e a lista de quem tem controle ficam no
+  editor do bot, onde um link pode ser **revogado**.
+- **Só quem está no grupo usa o controle.** Um link pedido num grupo confere,
+  a cada uso, se o dono ainda participa dele (a lista do WhatsApp é
+  consultada no máximo uma vez por minuto). Quem sai ou é removido perde o
+  acesso em até 1 minuto; se voltar, o mesmo link volta a funcionar. Se o
+  WhatsApp ficar desconectado por mais de 15 minutos, os controles do grupo
+  ficam em espera até ele voltar, porque não dá para confirmar quem está
+  nele.
+- O link também deixa de funcionar se for revogado, se o bot for desativado
+  ou removido, se o comando do controle for apagado ou se o grupo onde ele
+  foi pedido sair do bot.
+- Os links são montados com `PINGZAP_PUBLIC_URL` (veja a configuração). Sem
+  essa variável o controle remoto fica desligado. Fora da rede local,
+  publique o pingzap atrás de **HTTPS**, para o código do link não trafegar
+  em claro.
 
 ### Regras dos bots de alerta
 
@@ -224,6 +260,7 @@ Só a infraestrutura fica no `.env`. Todo o resto é configurado pela web.
 | `ESP32_MQTT_USERNAME`   | —                                    | Usuário do ESP32, criado no broker local pelo compose. |
 | `ESP32_MQTT_PASSWORD`   | —                                    | Senha do ESP32 no broker local. |
 | `PINGZAP_HTTP_ADDR`     | `:8080`                              | Endereço da interface web e da API. |
+| `PINGZAP_PUBLIC_URL`    | vazio                                | Endereço pelo qual as pessoas acessam o pingzap (ex.: `https://portao.exemplo.com` ou `http://192.168.0.5:8080`), usado nos links do controle remoto web; vazio desliga o controle. |
 | `PINGZAP_DB`            | `file:pingzap.db?_foreign_keys=on`   | Banco com usuários, dispositivos e bots. |
 | `PINGZAP_WHATSAPP_DB`   | `file:whatsapp.db?_foreign_keys=on`  | Banco com a sessão do WhatsApp. |
 | `INFLUXDB_PASSWORD`     | —                                    | Senha do usuário `admin` do InfluxDB (compose). |

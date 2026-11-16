@@ -1,0 +1,342 @@
+/* The web remote: always dark, made for a phone held in one hand. */
+
+html.remote-page,
+html.remote-page body {
+  background: #090c11;
+  color-scheme: dark;
+  overscroll-behavior: none;
+}
+
+.remote {
+  --ink: #eef2f6;
+  --dim: #8a94a3;
+  --line: rgba(255, 255, 255, 0.09);
+  --glow: #34d399;
+  --glow-deep: #0f9f6e;
+  position: relative;
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: max(1.5rem, env(safe-area-inset-top)) 1.25rem max(1.25rem, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.remote::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(60% 40% at 50% 28%, rgba(52, 211, 153, 0.16), transparent 70%),
+    linear-gradient(180deg, #0d1219 0%, #090c11 60%);
+}
+
+.remote-head {
+  text-align: center;
+}
+.remote-head small,
+.remote-orb small {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.remote-head h1 {
+  margin: 0.3rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.remote-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  justify-content: center;
+  min-height: 13rem;
+}
+.remote-orb {
+  position: relative;
+  width: 11.5rem;
+  height: 11.5rem;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem;
+  box-sizing: border-box;
+  text-align: center;
+  background: radial-gradient(circle at 50% 35%, #1a232e, #0d1219 70%);
+  border: 1px solid var(--line);
+  box-shadow:
+    0 0 0 0.6rem rgba(52, 211, 153, 0.05),
+    0 0 3.5rem rgba(52, 211, 153, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: remote-in 0.45s ease-out;
+}
+.remote-orb::after {
+  content: '';
+  position: absolute;
+  inset: -0.6rem;
+  border-radius: 50%;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  animation: remote-breathe 3.2s ease-in-out infinite;
+}
+.remote-orb span {
+  font-size: 1.7rem;
+  font-weight: 650;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.remote-orb.off {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.remote-orb.off::after {
+  display: none;
+}
+.remote-orb.off span {
+  font-size: 1.15rem;
+  font-weight: 500;
+  color: var(--dim);
+}
+
+.remote-warn {
+  margin: 0;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  text-align: center;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.remote-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 1.75rem;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.35);
+}
+.remote button {
+  white-space: normal;
+  touch-action: manipulation;
+}
+.remote-key {
+  position: relative;
+  min-height: 4.75rem;
+  padding: 0.75rem 1.25rem;
+  border: 0;
+  border-radius: 1.25rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: #04160f;
+  background: linear-gradient(140deg, var(--glow), var(--glow-deep));
+  box-shadow:
+    0 0.75rem 1.75rem rgba(16, 185, 129, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    opacity 0.2s ease;
+}
+.remote-key:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow:
+    0 0.25rem 0.75rem rgba(16, 185, 129, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.remote-key:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.remote-key[data-off] {
+  min-height: 3.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #5d6775;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+.remote-key[data-busy] span {
+  visibility: hidden;
+}
+.remote-key[data-busy]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 3px solid rgba(4, 22, 15, 0.25);
+  border-top-color: #04160f;
+  animation: remote-spin 0.7s linear infinite;
+}
+
+.remote-link {
+  min-height: 3.25rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  border-radius: 1rem;
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--glow);
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease;
+}
+.remote-link:active:not(:disabled) {
+  transform: scale(0.98);
+  background: rgba(52, 211, 153, 0.2);
+}
+.remote-link:disabled {
+  opacity: 0.5;
+}
+.remote-link[data-busy] {
+  opacity: 0.7;
+}
+.remote-note {
+  margin: 0.5rem 0;
+  text-align: center;
+  color: var(--dim);
+}
+
+.remote-fixes {
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 1rem;
+  background: rgba(251, 191, 36, 0.07);
+  overflow: hidden;
+}
+.remote-fixes summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3.25rem;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  list-style: none;
+  color: #fbbf24;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+}
+.remote-fixes summary::-webkit-details-marker {
+  display: none;
+}
+.remote-fixes summary::before {
+  content: '⚠';
+}
+.remote-fixes summary::after {
+  content: '▾';
+}
+.remote-fixes[open] summary::after {
+  content: '▴';
+}
+.remote-fixes .remote-link {
+  display: block;
+  width: calc(100% - 1.5rem);
+  margin: 0 0.75rem 0.75rem;
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--ink);
+}
+
+.remote-foot {
+  text-align: center;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #636d7b;
+}
+.remote-foot b {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.remote-message {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  text-align: center;
+  color: var(--dim);
+}
+.remote-message p {
+  margin: 0;
+  max-width: 19rem;
+}
+
+.remote-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 2.5rem);
+  box-sizing: border-box;
+  padding: 0.75rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 550;
+  text-align: center;
+  color: #04160f;
+  background: var(--glow);
+  box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.5);
+  animation: remote-toast 0.25s ease-out;
+}
+.remote-toast.error {
+  color: #fff;
+  background: #dc4a3d;
+  border-radius: 1rem;
+}
+
+@keyframes remote-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+@keyframes remote-breathe {
+  50% {
+    transform: scale(1.06);
+    opacity: 0.35;
+  }
+}
+@keyframes remote-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes remote-toast {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 0.75rem);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .remote-orb,
+  .remote-orb::after,
+  .remote-toast {
+    animation: none;
+  }
+}

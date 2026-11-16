@@ -1,6 +1,6 @@
 // Package store keeps the pingzap data in SQLite: web users and sessions,
-// devices with their MQTT topics, bots with the chats they answer and the
-// state of each conversation.
+// devices with their MQTT topics, bots with the chats they answer, the state
+// of each conversation and the web remote links with their history.
 package store
 
 import (
@@ -80,6 +80,30 @@ CREATE TABLE IF NOT EXISTS conversations (
 	data   TEXT NOT NULL,
 	PRIMARY KEY (bot_id, chat)
 );
+CREATE TABLE IF NOT EXISTS remote_links (
+	id         INTEGER PRIMARY KEY,
+	bot_id     INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+	phone      TEXT NOT NULL,
+	name       TEXT NOT NULL DEFAULT '',
+	token      TEXT NOT NULL UNIQUE,
+	chat_key   TEXT NOT NULL,
+	chat_jid   TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	last_used  INTEGER NOT NULL DEFAULT 0,
+	uses       INTEGER NOT NULL DEFAULT 0,
+	UNIQUE (bot_id, phone)
+);
+CREATE TABLE IF NOT EXISTS remote_uses (
+	id      INTEGER PRIMARY KEY,
+	bot_id  INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+	phone   TEXT NOT NULL,
+	name    TEXT NOT NULL,
+	action  TEXT NOT NULL,
+	command TEXT NOT NULL,
+	state   TEXT NOT NULL,
+	at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS remote_uses_bot_at ON remote_uses (bot_id, at);
 `
 
 // Open opens (creating if needed) the database at the SQLite DSN.

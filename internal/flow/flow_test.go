@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -89,24 +90,16 @@ func TestReportClosedByRemote(t *testing.T) {
 	}
 }
 
-func TestMaxAttempts(t *testing.T) {
+// "Try again" has no limit.
+func TestRetryHasNoLimit(t *testing.T) {
 	f := GateTemplate()
-	f.MaxAttempts = 2
-	r, _ := f.Handle("aberto", Conversation{}, "/fechar") // attempt 1
-	r, _ = f.Handle("fechado", r.Conversation, "1")       // attempt 2
-	if pub(r) != "PULSE" || !strings.HasPrefix(r.Replies[0], "Comando enviado novamente (tentativa 2).\n\nLimite de 2") || r.Conversation.Step != StepIdle {
-		t.Fatalf("last attempt = %+v", r)
-	}
-
-	// With other options to offer, they remain after the limit.
-	r, _ = f.Handle("fechado", Conversation{}, "/abrir")
-	r, _ = f.Handle("aberto", r.Conversation, "2")
-	if !strings.Contains(r.Replies[0], "*1* - Fechar o portão") || strings.Contains(r.Replies[0], "Tentar novamente") {
-		t.Fatalf("last attempt with extras = %q", r.Replies[0])
-	}
-	again, _ := f.Handle("aberto", r.Conversation, "2")
-	if pub(again) != "" || !strings.HasPrefix(again.Replies[0], "Opção inválida") {
-		t.Fatalf("retry past the limit = %+v", again)
+	r, _ := f.Handle("aberto", Conversation{}, "/fechar")
+	for attempt := 2; attempt <= 10; attempt++ {
+		r, _ = f.Handle("fechado", r.Conversation, "1")
+		want := fmt.Sprintf("Comando enviado novamente (tentativa %d).", attempt)
+		if pub(r) != "PULSE" || !strings.HasPrefix(r.Replies[0], want) || !strings.Contains(r.Replies[0], "*1* - Tentar novamente") {
+			t.Fatalf("attempt %d = %+v", attempt, r)
+		}
 	}
 }
 
@@ -131,12 +124,6 @@ func TestValidate(t *testing.T) {
 	broken.States[0].Options[0].NextState = "nao-existe"
 	if broken.Validate() == nil {
 		t.Error("accepted an option pointing at a missing state")
-	}
-
-	negative := GateTemplate()
-	negative.MaxAttempts = -1
-	if negative.Validate() == nil {
-		t.Error("accepted negative attempts")
 	}
 
 	if (Flow{StartCommand: "/start"}).Validate() == nil {

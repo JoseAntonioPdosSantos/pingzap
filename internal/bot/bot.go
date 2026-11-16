@@ -1,8 +1,9 @@
 // Package bot routes WhatsApp messages to the bot that answers each chat and
 // runs it: flow bots hold a menu conversation and publish commands; alert
 // bots publish ON when a message arrives and OFF once everyone was answered.
-// It also records the telemetry and status the devices send back, and warns
-// the bots' chats when a device stops answering.
+// It also records the telemetry and status the devices send back, warns the
+// bots' chats when a device stops answering, and runs the web remotes of the
+// flow bots.
 package bot
 
 import (
@@ -55,6 +56,8 @@ type Sender interface {
 	SendText(ctx context.Context, chat types.JID, text string) error
 	// ContactJID finds the WhatsApp account of a phone number.
 	ContactJID(ctx context.Context, number string) (types.JID, error)
+	// GroupMembers lists the phone numbers of the people in a group.
+	GroupMembers(ctx context.Context, group string) ([]string, error)
 }
 
 // Metrics stores telemetry for graphs (InfluxDB / Grafana).
@@ -68,6 +71,9 @@ type Service struct {
 	mqtt    MQTT
 	wa      Sender
 	metrics Metrics // optional
+	// publicURL is where people reach the web interface; the web remote
+	// links are built on it. Empty turns the web remote off.
+	publicURL string
 
 	// mu serializes message handling, device watching and reloads, so a bot's
 	// state and conversations change one message at a time.
@@ -81,6 +87,13 @@ type Service struct {
 	// lastHeard and outages watch the devices (see watch.go), by device ID.
 	lastHeard map[int64]time.Time
 	outages   map[int64]*outage
+	// remoteSent tracks, by bot ID, the last command sent from a web remote
+	// (see remote.go).
+	remoteSent map[int64]remoteSent
+	// members caches who is in each group, by group JID (see remote.go).
+	members map[string]groupMembers
+	// sending counts the messages being sent in the background.
+	sending sync.WaitGroup
 }
 
 type route struct {
@@ -102,10 +115,13 @@ type savedConversation struct {
 	flow.Conversation
 }
 
-// New creates the service; metrics may be nil.
-func New(st *store.Store, mq MQTT, wa Sender, metrics Metrics) *Service {
-	return &Service{store: st, mqtt: mq, wa: wa, metrics: metrics, trackers: make(map[int64]*alert.Tracker),
-		lastHeard: make(map[int64]time.Time), outages: make(map[int64]*outage)}
+// New creates the service; metrics may be nil. publicURL is the address of
+// the web interface as people reach it; empty turns the web remote off.
+func New(st *store.Store, mq MQTT, wa Sender, metrics Metrics, publicURL string) *Service {
+	return &Service{store: st, mqtt: mq, wa: wa, metrics: metrics, publicURL: strings.TrimRight(publicURL, "/"),
+		trackers:  make(map[int64]*alert.Tracker),
+		lastHeard: make(map[int64]time.Time), outages: make(map[int64]*outage),
+		remoteSent: make(map[int64]remoteSent), members: make(map[string]groupMembers)}
 }
 
 // Reload rebuilds the routes and subscriptions from the database. Call it
@@ -272,6 +288,11 @@ func (s *Service) handleFlow(r *route, m whatsapp.Message) {
 
 	res, ok := r.flow.Handle(r.bot.CurrentState, saved.Conversation, m.Text)
 	if !ok {
+		return
+	}
+	if res.Remote {
+		s.saveConversation(r, key, m.Chat, res.Conversation)
+		s.sendRemoteLink(r, m)
 		return
 	}
 	for _, cmd := range res.Publish {
