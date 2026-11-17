@@ -32,6 +32,12 @@ export type Flow = {
   menu_command: string
   // Empty or absent turns the web remote off.
   remote_command?: string
+  // Text of the web remote option; empty = default.
+  remote_label?: string
+  // Line above the numbered options; empty = "Digite o número da opção:".
+  prompt?: string
+  // Optional text at the end of every menu.
+  footer?: string
   states: FlowState[]
 }
 export type AlertConfig = { keyword: string; on_payload: string; off_payload: string }

@@ -318,6 +318,38 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
         </div>
         <div className="inline">
           <label>
+            Texto antes das opções
+            <input
+              value={flow.prompt ?? ''}
+              placeholder="Digite o número da opção:"
+              onChange={(e) => onChange({ ...flow, prompt: e.target.value })}
+            />
+            <small className="muted">Só muda o texto: a pessoa continua respondendo com o número. Vazio = padrão.</small>
+          </label>
+        </div>
+        <label>
+          Mensagem no final (opcional)
+          <textarea
+            rows={2}
+            value={flow.footer ?? ''}
+            placeholder="Ex.: Em caso de dúvida, fale com a portaria."
+            onChange={(e) => onChange({ ...flow, footer: e.target.value })}
+          />
+          <small className="muted">Aparece no fim de todo menu. Vazio = nenhuma.</small>
+        </label>
+        <div className="inline">
+          <label>
+            Texto da opção do controle remoto
+            <input
+              value={flow.remote_label ?? ''}
+              placeholder="Receber o controle remoto web no privado"
+              onChange={(e) => onChange({ ...flow, remote_label: e.target.value })}
+            />
+            <small className="muted">O comando continua aparecendo entre parênteses. Vazio = padrão.</small>
+          </label>
+        </div>
+        <div className="inline">
+          <label>
             Comando do controle remoto web
             <input
               value={flow.remote_command ?? ''}
@@ -343,6 +375,9 @@ function FlowEditor({ flow, onChange }: { flow: Flow; onChange: (f: Flow) => voi
           state={s}
           states={flow.states}
           remoteCommand={flow.remote_command ?? ''}
+          remoteLabel={flow.remote_label ?? ''}
+          prompt={flow.prompt ?? ''}
+          footer={flow.footer ?? ''}
           onChange={(st) => setState(i, st)}
           onRemove={flow.states.length > 1 ? () => removeState(i) : undefined}
         />
@@ -358,11 +393,14 @@ type StateProps = {
   state: FlowState
   states: FlowState[]
   remoteCommand: string
+  remoteLabel: string
+  prompt: string
+  footer: string
   onChange: (s: FlowState) => void
   onRemove?: () => void
 }
 
-function StateEditor({ state, states, remoteCommand, onChange, onRemove }: StateProps) {
+function StateEditor({ state, states, remoteCommand, remoteLabel, prompt, footer, onChange, onRemove }: StateProps) {
   const setOption = (i: number, o: FlowOption) => onChange({ ...state, options: state.options.map((x, j) => (j === i ? o : x)) })
 
   const move = (i: number, delta: number) => {
@@ -478,7 +516,7 @@ function StateEditor({ state, states, remoteCommand, onChange, onRemove }: State
             Adicionar opção
           </button>
         </div>
-        <MenuPreview state={state} remoteCommand={remoteCommand} />
+        <MenuPreview state={state} remoteCommand={remoteCommand} remoteLabel={remoteLabel} prompt={prompt} footer={footer} />
       </div>
     </div>
   )
@@ -486,10 +524,22 @@ function StateEditor({ state, states, remoteCommand, onChange, onRemove }: State
 
 // MenuPreview shows the message the bot sends for this state, as built by
 // the server (internal/flow).
-function MenuPreview({ state, remoteCommand }: { state: FlowState; remoteCommand: string }) {
+function MenuPreview({
+  state,
+  remoteCommand,
+  remoteLabel,
+  prompt,
+  footer,
+}: {
+  state: FlowState
+  remoteCommand: string
+  remoteLabel: string
+  prompt: string
+  footer: string
+}) {
   const lines = state.options.map((o, i) => `*${i + 1}* - ${o.label || '…'}${o.shortcut ? ` (${o.shortcut})` : ''}`)
-  if (remoteCommand) lines.push(`*${lines.length + 1}* - Receber o controle remoto web no privado (${remoteCommand})`)
-  const text = `${state.menu ? state.menu + '\n\n' : ''}Digite o número da opção:\n${lines.join('\n')}`
+  if (remoteCommand) lines.push(`*${lines.length + 1}* - ${remoteLabel.trim() || 'Receber o controle remoto web no privado'} (${remoteCommand})`)
+  const text = `${state.menu ? state.menu + '\n\n' : ''}${prompt.trim() || 'Digite o número da opção:'}\n${lines.join('\n')}${footer.trim() ? '\n\n' + footer.trim() : ''}`
   return (
     <div className="preview">
       <small className="muted">Prévia no WhatsApp</small>

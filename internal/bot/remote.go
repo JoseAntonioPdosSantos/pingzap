@@ -249,7 +249,7 @@ func leadsTo(o flow.Option, from string) string {
 // RemoteAct runs an option from the web remote of a token: stateID and
 // option are what the person pressed, and retry sends again the command
 // just sent, as many times as the person wants. Like the chat, it trusts the command and moves to the next
-// state right away. The use is recorded and told to the chat of the link.
+// state right away. The use is only recorded (log and history); nothing is sent to WhatsApp.
 //
 // With ErrRemoteStale the returned Remote is valid, so the page can show
 // what changed.
@@ -309,22 +309,5 @@ func (s *Service) RemoteAct(token, stateID string, option int, retry bool) (Remo
 	if err := s.store.LogRemoteUse(link, use); err != nil {
 		log.Printf("bot %q: record web remote use of %s: %v", r.bot.Name, link.Phone, err)
 	}
-	s.announceRemoteUse(link, use)
 	return s.remoteView(link, r, now), nil
-}
-
-// announceRemoteUse tells the chat of the link what was done, in the
-// background: the page does not wait for WhatsApp.
-func (s *Service) announceRemoteUse(link store.RemoteLink, use store.RemoteUse) {
-	jid, err := types.ParseJID(link.ChatJID)
-	if err != nil {
-		log.Printf("web remote of %s: chat %q: %v", link.Phone, link.ChatJID, err)
-		return
-	}
-	text := fmt.Sprintf("🎛️ *%s* usou o controle remoto web:\n*%s*\nEstado atual: *%s*.", link.Name, use.Action, use.State)
-	s.sending.Add(1)
-	go func() {
-		defer s.sending.Done()
-		s.send(jid, text)
-	}()
 }

@@ -100,8 +100,8 @@ the browser: a page made for phones, with the bot's commands as buttons.
   the command can be sent again and the state can
   be corrected. A repeated tap or an outdated page does not pulse the relay
   twice.
-- **Every use is recorded** (who, what and when) and **announced in the
-  chat** where the link was requested. The history and the list of people
+- **Every use is recorded** (who, what and when) and **not announced in
+  the chat** (nothing is sent to WhatsApp). The history and the list of people
   with a remote are in the bot editor, where a link can be **revoked**.
 - **Only people in the group use the remote.** A link requested in a group
   checks, on every use, that its owner is still a member (the WhatsApp list

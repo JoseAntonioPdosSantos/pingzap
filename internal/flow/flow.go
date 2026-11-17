@@ -23,8 +23,41 @@ type Flow struct {
 	// RemoteCommand (e.g. "/controle") sends the person the link to their
 	// web remote. It is also the last option of every menu. Empty turns the
 	// web remote off.
-	RemoteCommand string  `json:"remote_command,omitempty"`
-	States        []State `json:"states"`
+	RemoteCommand string `json:"remote_command,omitempty"`
+	// Prompt replaces the line shown above the numbered options; empty uses
+	// DefaultPrompt. The numbers are still what the person types.
+	Prompt string `json:"prompt,omitempty"`
+	// RemoteText replaces the text of the web remote option; empty uses
+	// the RemoteLabel constant. The command shown in parentheses and the number stay.
+	RemoteText string `json:"remote_label,omitempty"`
+	// Footer is an optional text added at the end of every menu.
+	Footer string  `json:"footer,omitempty"`
+	States []State `json:"states"`
+}
+
+// DefaultPrompt is the line above the options when Flow.Prompt is empty.
+const DefaultPrompt = "Digite o número da opção:"
+
+func (f Flow) prompt() string {
+	if p := strings.TrimSpace(f.Prompt); p != "" {
+		return p
+	}
+	return DefaultPrompt
+}
+
+func (f Flow) remoteLabel() string {
+	if l := strings.TrimSpace(f.RemoteText); l != "" {
+		return l
+	}
+	return RemoteLabel
+}
+
+// withFooter appends the optional footer to a menu text.
+func (f Flow) withFooter(menu string) string {
+	if footer := strings.TrimSpace(f.Footer); footer != "" {
+		return menu + "\n\n" + footer
+	}
+	return menu
 }
 
 // RemoteLabel is the menu option that sends the web remote link.
@@ -330,7 +363,7 @@ func (f Flow) showMenu(s State) Result {
 		b.WriteString(s.Menu)
 		b.WriteString("\n\n")
 	}
-	b.WriteString("Digite o número da opção:")
+	b.WriteString(f.prompt())
 	for i, o := range s.Options {
 		fmt.Fprintf(&b, "\n*%d* - %s", i+1, o.Label)
 		if o.Shortcut != "" {
@@ -338,10 +371,10 @@ func (f Flow) showMenu(s State) Result {
 		}
 	}
 	if f.RemoteCommand != "" {
-		fmt.Fprintf(&b, "\n*%d* - %s (%s)", len(s.Options)+1, RemoteLabel, f.RemoteCommand)
+		fmt.Fprintf(&b, "\n*%d* - %s (%s)", len(s.Options)+1, f.remoteLabel(), f.RemoteCommand)
 	}
 	return Result{
-		Replies:      []string{b.String()},
+		Replies:      []string{f.withFooter(b.String())},
 		Conversation: Conversation{Step: StepMenu, StateID: s.ID},
 	}
 }
@@ -392,7 +425,7 @@ func (f Flow) option(c Conversation) (Option, bool) {
 func (f Flow) afterCommandPrompt(o Option) string {
 	next, extras := f.extras(o)
 	var b strings.Builder
-	b.WriteString("Digite o número da opção:")
+	b.WriteString(f.prompt())
 	for i, index := range extras {
 		e := next.Options[index]
 		fmt.Fprintf(&b, "\n*%d* - %s", i+1, e.Label)
@@ -401,7 +434,7 @@ func (f Flow) afterCommandPrompt(o Option) string {
 		}
 	}
 	fmt.Fprintf(&b, "\n*%d* - Tentar novamente", len(extras)+1)
-	return b.String()
+	return f.withFooter(b.String())
 }
 
 // extras returns the state o leads to and the indexes of its options

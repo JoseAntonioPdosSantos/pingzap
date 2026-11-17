@@ -100,8 +100,8 @@ botões.
   regras: só valem os do estado atual, o estado muda na hora, dá para enviar
   o comando de novo e corrigir o estado. Um
   toque repetido ou uma página desatualizada não pulsa o relé duas vezes.
-- **Cada uso é registrado** (quem, o quê e quando) e **avisado no chat** onde
-  o link foi pedido. O histórico e a lista de quem tem controle ficam no
+- **Cada uso é registrado** (quem, o quê e quando) e **não é avisado no
+  chat** (nada é enviado ao WhatsApp). O histórico e a lista de quem tem controle ficam no
   editor do bot, onde um link pode ser **revogado**.
 - **Só quem está no grupo usa o controle.** Um link pedido num grupo confere,
   a cada uso, se o dono ainda participa dele (a lista do WhatsApp é

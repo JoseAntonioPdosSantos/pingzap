@@ -192,3 +192,27 @@ func TestOptionWithoutCommand(t *testing.T) {
 		t.Fatalf("option 1 = %+v", done)
 	}
 }
+
+func TestCustomPromptAndFooter(t *testing.T) {
+	f := GateTemplate()
+	f.Prompt = "Responda com o número:"
+	f.Footer = "Dúvidas? Fale com a portaria."
+	f.RemoteText = "Quero o controle no privado"
+
+	r, _ := f.Handle("fechado", Conversation{}, "/start")
+	got := r.Replies[0]
+	if !strings.Contains(got, "\n\nResponda com o número:\n*1* - ") || strings.Contains(got, "Digite o número") || !strings.HasSuffix(got, "\n\nDúvidas? Fale com a portaria.") {
+		t.Fatalf("menu = %q", got)
+	}
+
+	if !strings.Contains(got, "*3* - Quero o controle no privado (/controle)") {
+		t.Fatalf("remote option = %q", got)
+	}
+
+	// The numbers keep working and the after-command prompt uses both texts.
+	r, _ = f.Handle("fechado", r.Conversation, "1")
+	got = r.Replies[0]
+	if pub(r) != "PULSE" || !strings.Contains(got, "Responda com o número:") || !strings.HasSuffix(got, "Dúvidas? Fale com a portaria.") {
+		t.Fatalf("after command = %q", got)
+	}
+}

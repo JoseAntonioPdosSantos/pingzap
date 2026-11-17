@@ -97,9 +97,9 @@ func TestRemoteAct(t *testing.T) {
 	if got, _ := st.GetBot(b.ID); got.CurrentState != "aberto" || view.State.ID != "aberto" {
 		t.Fatalf("state = %q, view = %q", got.CurrentState, view.State.ID)
 	}
-	if len(wa.sent) != sentBefore+1 || wa.to[sentBefore] != groupJID ||
-		!strings.Contains(wa.sent[sentBefore], "Ana") || !strings.Contains(wa.sent[sentBefore], "Abrir o portão") {
-		t.Fatalf("group told %q", wa.sent[sentBefore:])
+	// The use is only recorded: nothing is sent to WhatsApp.
+	if len(wa.sent) != sentBefore {
+		t.Fatalf("WhatsApp told %q", wa.sent[sentBefore:])
 	}
 	uses, _ := st.RemoteUses(b.ID, 10)
 	if len(uses) != 1 || uses[0].Phone != "5567911111111" || uses[0].Action != "Abrir o portão" || uses[0].State != "Aberto" {
