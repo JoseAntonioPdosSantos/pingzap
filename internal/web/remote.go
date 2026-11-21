@@ -49,7 +49,15 @@ func writeRemote(w http.ResponseWriter, status int, v any) {
 func writeRemoteError(w http.ResponseWriter, err error, view *bot.Remote) {
 	status := http.StatusInternalServerError
 	msg := "erro interno"
+	var locked *bot.RemoteLocked
 	switch {
+	case errors.As(err, &locked):
+		// 410: this access is over. 423: it is only closed for now, so the
+		// page keeps asking until it opens.
+		status, msg, view = http.StatusLocked, locked.Reason, nil
+		if locked.Permanent {
+			status = http.StatusGone
+		}
 	case errors.Is(err, bot.ErrRemoteGone):
 		status, msg, view = http.StatusNotFound, err.Error(), nil
 	case errors.Is(err, bot.ErrRemoteUnverified):
@@ -96,7 +104,12 @@ func (s *Server) botRemote(w http.ResponseWriter, r *http.Request, _ store.User)
 		writeStoreError(w, err, "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"links": links, "uses": uses})
+	passes, err := s.store.Passes(id)
+	if err != nil {
+		writeStoreError(w, err, "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"links": links, "uses": uses, "passes": s.passViews(passes)})
 }
 
 func (s *Server) revokeRemote(w http.ResponseWriter, r *http.Request, _ store.User) {

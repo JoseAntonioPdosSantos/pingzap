@@ -116,6 +116,28 @@ the browser: a page made for phones, with the bot's commands as buttons.
   it the web remote is off. Outside the local network, serve pingzap behind
   **HTTPS**, so the code in the link does not travel in the clear.
 
+#### Temporary accesses
+
+For someone who is not in the bot's chats (a visitor, a cleaner, a courier),
+the bot editor has **Temporary accesses**: pick a template or fill in the
+form, and copy the link to send it yourself. Each access has:
+
+- **Validity**: an optional start and an expiry date and time.
+- **Use limit**: how many commands it may send (`0` = no limit). `2` gives
+  exactly one open and one close, and then the access is over. Sending the
+  command just sent again (the "didn't work?" button) is free; a command
+  that could not reach the device is not counted.
+- **Days and hours**: any number of windows (days of the week + start/end
+  time, read in your browser's time zone; an end before the start goes
+  through midnight). Outside them the link shows when it opens again, and
+  works on its own once the time comes.
+
+The cards show status (active, outside hours, expired, no uses left), uses
+as dots, expiry and the week. An expired or used up access can be renewed
+from **Renew / edit** (tick *reset uses*) and keeps the same link;
+**revoke** ends it for good. Uses are recorded under the access's name and
+nothing is sent to WhatsApp.
+
 ### Alert bot rules
 
 - A message from one of the bot's contacts or groups publishes the ON command

@@ -72,6 +72,10 @@ func New(st *store.Store, bots *bot.Service, wa WhatsApp) http.Handler {
 	s.handle("PUT /api/bots/{id}/state", s.setBotState)
 	s.handle("GET /api/bots/{id}/remote", s.botRemote)
 	s.handle("DELETE /api/bots/{id}/remote/{link}", s.revokeRemote)
+	s.handle("POST /api/bots/{id}/passes", s.createPass)
+	s.handle("PUT /api/bots/{id}/passes/{pass}", s.updatePass)
+	s.handle("DELETE /api/bots/{id}/passes/{pass}", s.deletePass)
+	s.handle("POST /api/bots/{id}/passes/{pass}/send", s.sendPass)
 	s.handle("GET /api/templates/gate", s.gateTemplate)
 
 	s.mux.HandleFunc("GET /api/remote/{token}", s.remoteView)

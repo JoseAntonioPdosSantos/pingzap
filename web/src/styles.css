@@ -428,3 +428,185 @@ tr:last-child td {
     padding: 0.75rem 16px;
   }
 }
+
+/* Temporary accesses */
+
+.pass-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 0.85rem;
+  margin-top: 0.75rem;
+}
+.pass-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.pass-card.wait {
+  border-left-color: var(--warn);
+}
+.pass-card.off {
+  border-left-color: var(--muted);
+}
+.pass-card.done {
+  opacity: 0.8;
+}
+.pass-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.pass-name {
+  overflow-wrap: anywhere;
+}
+.pass-badge {
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.pass-badge.ok {
+  color: var(--accent);
+}
+.pass-badge.wait {
+  color: var(--warn);
+}
+.pass-badge.off {
+  color: var(--muted);
+}
+.pass-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  flex: 1;
+}
+.pass-reason {
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+.pass-uses {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.pass-dots {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.pass-dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+}
+.pass-dots i.used {
+  background: var(--accent);
+}
+.pass-sched {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.pass-sched ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.pass-week {
+  display: inline-flex;
+  gap: 3px;
+}
+.pass-week span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.pass-week span.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.pass-form {
+  background: var(--bg);
+  margin-top: 0.75rem;
+}
+.pass-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+.pass-presets button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  white-space: normal;
+  text-align: left;
+}
+.pass-presets small {
+  color: var(--muted);
+}
+.pass-dates {
+  align-items: flex-end;
+}
+.pass-always {
+  margin: 0.35rem 0;
+}
+.pass-window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  padding: 0.5rem 0;
+}
+.pass-days {
+  display: inline-flex;
+  gap: 4px;
+}
+.pass-days button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  font-weight: 600;
+}
+.pass-days button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.pass-times {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.pass-times input {
+  width: auto;
+}
+.pass-send {
+  display: flex;
+  gap: 0.5rem;
+}
+.pass-send input {
+  flex: 1;
+  min-width: 0;
+}

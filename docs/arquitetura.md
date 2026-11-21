@@ -208,7 +208,7 @@ sequenceDiagram
 | `internal/whatsapp` | conexão whatsmeow, QR code, contatos e grupos, envio |
 | `internal/bot` | roteamento chat → bot, bots de fluxo e de alerta, telemetria, monitoramento das placas, controle remoto web |
 | `internal/flow` | máquina de estados pura (menus, atalhos, tentar novamente) |
-| `internal/store` | SQLite: usuários, sessões, dispositivos, bots, conversas, links e histórico do controle remoto web |
+| `internal/store` | SQLite: usuários, sessões, dispositivos, bots, conversas, links, acessos temporários e histórico do controle remoto web |
 | `internal/web` + `web/` | API em Go e interface em React (embutida no binário) |
 | `internal/mqtt` | cliente MQTT com reconexão e assinaturas dinâmicas |
 | `internal/metrics` | envio da telemetria ao InfluxDB (line protocol, em lote) |
