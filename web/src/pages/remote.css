@@ -340,3 +340,20 @@ html.remote-page body {
     animation: none;
   }
 }
+
+.remote-access {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.remote-access b {
+  color: var(--ink);
+  font-size: 1.05rem;
+}

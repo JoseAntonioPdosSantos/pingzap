@@ -14,7 +14,12 @@ type RemoteView = {
   buttons: Button[]
   fixes: Button[]
   retry?: Button
+  // Set for a temporary access: what is left of it.
+  access?: { uses_left: number; expires_at?: string; schedule?: string; note?: string }
 }
+// A temporary access that does not work now: for good (expired, no uses
+// left) or only until its hours come.
+type Locked = { text: string; permanent: boolean }
 type Toast = { text: string; kind: 'ok' | 'error' }
 
 const POLL_MS = 4000
@@ -25,10 +30,12 @@ export default function Remote({ token }: { token: string }) {
   const [gone, setGone] = useState(false)
   const [lost, setLost] = useState(false)
   const [blocked, setBlocked] = useState('')
+  const [locked, setLocked] = useState<Locked | null>(null)
   const [busy, setBusy] = useState('')
   const [toast, setToast] = useState<Toast | null>(null)
   const toastTimer = useRef(0)
   const acting = useRef(false)
+  const permanent = useRef(false)
   const url = `/api/remote/${encodeURIComponent(token)}`
 
   const notify = (t: Toast) => {
@@ -37,12 +44,19 @@ export default function Remote({ token }: { token: string }) {
     toastTimer.current = window.setTimeout(() => setToast(null), 3500)
   }
 
+  const lock = async (res: Response) => {
+    const data = await res.json().catch(() => ({}))
+    setView(null)
+    setLocked({ text: data.error ?? 'Este acesso não está disponível agora.', permanent: res.status === 410 })
+  }
+
   const load = useCallback(async () => {
     // A press in flight brings the fresh state itself.
     if (acting.current) return
     try {
       const res = await fetch(url, { cache: 'no-store' })
       if (res.status === 404) return setGone(true)
+      if (res.status === 410 || res.status === 423) return lock(res)
       if (res.status === 503) {
         // Whether the person is still in the group could not be checked.
         const data = await res.json().catch(() => ({}))
@@ -52,6 +66,7 @@ export default function Remote({ token }: { token: string }) {
       if (!res.ok) throw new Error()
       const data = (await res.json()) as RemoteView
       if (!acting.current) setView(data)
+      setLocked(null)
       setLost(false)
       setBlocked('')
     } catch {
@@ -62,7 +77,7 @@ export default function Remote({ token }: { token: string }) {
   useEffect(() => {
     document.documentElement.classList.add('remote-page')
     load()
-    const timer = window.setInterval(() => !document.hidden && load(), POLL_MS)
+    const timer = window.setInterval(() => !document.hidden && !permanent.current && load(), POLL_MS)
     const onVisible = () => !document.hidden && load()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -71,6 +86,10 @@ export default function Remote({ token }: { token: string }) {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [load])
+
+  useEffect(() => {
+    permanent.current = !!locked?.permanent
+  }, [locked])
 
   useEffect(() => {
     if (view) document.title = `${view.bot} · controle remoto`
@@ -88,11 +107,16 @@ export default function Remote({ token }: { token: string }) {
       })
       const data = await res.json().catch(() => ({}))
       if (res.status === 404) return setGone(true)
+      if (res.status === 410 || res.status === 423) {
+        setLocked({ text: data.error ?? 'Este acesso não está disponível agora.', permanent: res.status === 410 })
+        return setView(null)
+      }
       if (!res.ok) {
         if (data.remote) setView(data.remote)
         return notify({ text: data.error ?? 'Não foi possível enviar o comando.', kind: 'error' })
       }
       setView(data)
+      setLocked(null)
       setLost(false)
       navigator.vibrate?.(35)
       notify({ text: retry ? 'Comando enviado de novo' : `${b.label}: feito`, kind: 'ok' })
@@ -115,6 +139,19 @@ export default function Remote({ token }: { token: string }) {
             Este link não vale mais: foi revogado ou você não está mais no grupo. Peça um novo pelo menu do bot no
             WhatsApp.
           </p>
+        </div>
+      </div>
+    )
+  }
+  if (locked) {
+    return (
+      <div className="remote">
+        <div className="remote-message">
+          <div className="remote-orb off">
+            <span>{locked.permanent ? 'Acesso encerrado' : 'Fora do horário'}</span>
+          </div>
+          <p>{locked.text}</p>
+          {!locked.permanent && <p className="remote-note">Esta página abre sozinha quando o acesso for liberado.</p>}
         </div>
       </div>
     )
@@ -176,6 +213,8 @@ export default function Remote({ token }: { token: string }) {
         )}
       </section>
 
+      {view.access && <AccessInfo access={view.access} />}
+
       {view.fixes.length > 0 && (
         <details className="remote-fixes">
           <summary>O estado mostrado está errado?</summary>
@@ -188,7 +227,15 @@ export default function Remote({ token }: { token: string }) {
       )}
 
       <footer className="remote-foot">
-        Controle pessoal de <b>{view.owner}</b>. Cada uso fica registrado no seu nome e é avisado no WhatsApp.
+        {view.access ? (
+          <>
+            Acesso temporário de <b>{view.owner}</b>. Cada uso fica registrado.
+          </>
+        ) : (
+          <>
+            Controle pessoal de <b>{view.owner}</b>. Cada uso fica registrado no seu nome e é avisado no WhatsApp.
+          </>
+        )}
       </footer>
 
       {toast && (
@@ -197,5 +244,21 @@ export default function Remote({ token }: { token: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+function AccessInfo({ access }: { access: NonNullable<RemoteView['access']> }) {
+  const when = (iso: string) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+  return (
+    <section className="remote-access">
+      {access.uses_left >= 0 && (
+        <div>
+          <b>{access.uses_left}</b> {access.uses_left === 1 ? 'uso restante' : 'usos restantes'}
+        </div>
+      )}
+      {access.expires_at && <div>Vale até {when(access.expires_at)}</div>}
+      {access.schedule && <div>Horários: {access.schedule}</div>}
+      {access.note && <div className="remote-warn">{access.note}</div>}
+    </section>
   )
 }

@@ -11,15 +11,17 @@ import (
 	"go.mau.fi/whatsmeow/types"
 
 	"pingzap/internal/flow"
+	"pingzap/internal/phone"
 	"pingzap/internal/store"
 	"pingzap/internal/whatsapp"
 )
 
 // The web remote is a page with the commands of a flow bot as buttons. Each
 // person gets a personal link from the bot, in a private chat; whatever is
-// done through it is recorded under their name and told to the chat where
-// they asked for it. A link asked for in a group only works while its owner
-// is in that group.
+// done through it is recorded under their name. A link asked for in a group
+// only works while its owner is in that group. Besides these personal links,
+// the management interface makes temporary accesses (store.RemotePass) for
+// people outside the chats, limited by dates, uses and hours.
 
 const (
 	// retryWindow is how long after a command the remote offers to send it
@@ -55,6 +57,37 @@ var (
 	ErrRemoteDevice = errors.New("não consegui enviar o comando ao dispositivo; tente novamente em instantes")
 )
 
+// RemoteLocked means a temporary access exists but does not work right now:
+// it expired, ran out of uses, has not started or is outside its hours.
+// Reason is meant for the person holding the link. A permanent lock never
+// lifts; a temporary one lifts with time.
+type RemoteLocked struct {
+	Reason    string
+	Permanent bool
+}
+
+func (e *RemoteLocked) Error() string { return e.Reason }
+
+// remoteAccess is who a web remote token belongs to: a person with a link
+// from the bot (link), or a temporary access made in the interface (pass).
+type remoteAccess struct {
+	name string
+	link store.RemoteLink
+	pass *store.RemotePass
+	// lastChance is a pass that just ran out of uses: for a little while it
+	// can still send again the command just sent, in case it did not arrive.
+	lastChance bool
+}
+
+// RemoteAccess describes the limits of a temporary access to whoever holds it.
+type RemoteAccess struct {
+	// UsesLeft is -1 when there is no limit.
+	UsesLeft  int        `json:"uses_left"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Schedule  string     `json:"schedule,omitempty"`
+	Note      string     `json:"note,omitempty"`
+}
+
 // Remote is what a web remote shows.
 type Remote struct {
 	Owner string      `json:"owner"`
@@ -70,6 +103,8 @@ type Remote struct {
 	Fixes []RemoteButton `json:"fixes"`
 	// Retry is the command just sent, while it may be sent again.
 	Retry *RemoteButton `json:"retry,omitempty"`
+	// Access is set for a temporary access.
+	Access *RemoteAccess `json:"access,omitempty"`
 }
 
 type RemoteState struct {
@@ -141,33 +176,110 @@ func (s *Service) sendRemoteLink(r *route, m whatsapp.Message) {
 	}
 }
 
-// remoteRoute finds the link of a token and the bot it controls. The link
-// only works while the bot is enabled, offers the web remote and still
-// answers the chat where the link was asked for. A link asked for in a
-// group also needs its owner to still be in that group.
-func (s *Service) remoteRoute(token string, now time.Time) (store.RemoteLink, *route, error) {
+// ErrNoPublicURL means links can not be built: PINGZAP_PUBLIC_URL is not set.
+var ErrNoPublicURL = errors.New("o endereço público do pingzap (PINGZAP_PUBLIC_URL) não está configurado")
+
+// SendPassLink sends the link of a temporary access to a phone number on
+// WhatsApp, with what the access allows.
+func (s *Service) SendPassLink(pass store.RemotePass, number string) error {
+	if s.publicURL == "" {
+		return ErrNoPublicURL
+	}
+	number = phone.Normalize(number)
+	if len(number) < 10 {
+		return &store.ValidationError{Msg: "número de telefone inválido: use DDD + número"}
+	}
+	b, err := s.store.GetBot(pass.BotID)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	defer cancel()
+	jid, err := s.wa.ContactJID(ctx, number)
+	if err != nil {
+		return fmt.Errorf("esse número não foi encontrado no WhatsApp: %w", err)
+	}
+
+	loc := pass.Location()
+	when := func(t time.Time) string { return t.In(loc).Format("02/01 às 15:04") }
+	lines := []string{fmt.Sprintf("🎛️ *Controle remoto: %s*", b.Name), "",
+		fmt.Sprintf("Olá, %s! Você recebeu um acesso temporário. Toque no link para usar pelo navegador:", pass.Name),
+		s.publicURL + "/c/" + pass.Token, ""}
+	if pass.StartsAt != nil {
+		lines = append(lines, "• Vale a partir de "+when(*pass.StartsAt))
+	}
+	if pass.ExpiresAt != nil {
+		lines = append(lines, "• Vale até "+when(*pass.ExpiresAt))
+	}
+	if pass.MaxUses > 0 {
+		lines = append(lines, fmt.Sprintf("• Limite de %d usos", pass.MaxUses))
+	}
+	if len(pass.Schedule.Windows) > 0 {
+		lines = append(lines, "• Horários: "+pass.Schedule.Describe())
+	}
+	lines = append(lines, "", "O link é *pessoal*. Não compartilhe.")
+	if err := s.wa.SendText(ctx, jid, strings.Join(lines, "\n")); err != nil {
+		return fmt.Errorf("não consegui enviar pelo WhatsApp: %w", err)
+	}
+	log.Printf("bot %q: temporary access %q sent to %s", b.Name, pass.Name, number)
+	return nil
+}
+
+// remoteRoute finds who a token belongs to and the bot it controls. A
+// person's link only works while the bot is enabled, offers the web remote
+// and still answers the chat where the link was asked for; a link asked for
+// in a group also needs its owner to still be in that group. A temporary
+// access works while the bot is an enabled flow bot and the access is valid
+// at now, else the error is a *RemoteLocked.
+func (s *Service) remoteRoute(token string, now time.Time) (remoteAccess, *route, error) {
+	pass, err := s.store.PassByToken(token)
+	if err == nil {
+		return s.passRoute(pass, now)
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return remoteAccess{}, nil, err
+	}
+
 	link, err := s.store.RemoteLinkByToken(token)
 	if errors.Is(err, store.ErrNotFound) {
-		return link, nil, ErrRemoteGone
+		return remoteAccess{}, nil, ErrRemoteGone
 	}
 	if err != nil {
-		return link, nil, err
+		return remoteAccess{}, nil, err
 	}
+	acc := remoteAccess{name: link.Name, link: link}
 	r, ok := s.bots[link.BotID]
 	if !ok || r.bot.Kind != store.KindFlow || r.flow.RemoteCommand == "" || s.routes[link.ChatKey] != r {
-		return link, nil, ErrRemoteGone
+		return acc, nil, ErrRemoteGone
 	}
 	if group, ok := strings.CutPrefix(link.ChatKey, "group:"); ok {
 		in, err := s.inGroup(group, link.Phone, now)
 		if err != nil {
 			log.Printf("bot %q: web remote of %s: members of %s: %v", r.bot.Name, link.Phone, group, err)
-			return link, nil, ErrRemoteUnverified
+			return acc, nil, ErrRemoteUnverified
 		}
 		if !in {
-			return link, nil, ErrRemoteGone
+			return acc, nil, ErrRemoteGone
 		}
 	}
-	return link, r, nil
+	return acc, r, nil
+}
+
+func (s *Service) passRoute(pass store.RemotePass, now time.Time) (remoteAccess, *route, error) {
+	acc := remoteAccess{name: pass.Name, pass: &pass}
+	r, ok := s.bots[pass.BotID]
+	if !ok || r.bot.Kind != store.KindFlow {
+		return acc, nil, ErrRemoteGone
+	}
+	status, reason := pass.Status(now)
+	switch {
+	case status == store.PassActive:
+	case status == store.PassUsedUp && pass.LastUsed != nil && now.Sub(*pass.LastUsed) < retryWindow:
+		acc.lastChance = true
+	default:
+		return acc, nil, &RemoteLocked{Reason: reason, Permanent: status.Permanent()}
+	}
+	return acc, r, nil
 }
 
 // inGroup reports whether the number is in the group, asking WhatsApp when
@@ -200,17 +312,17 @@ func (s *Service) Remote(token string) (Remote, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	link, r, err := s.remoteRoute(token, now)
+	acc, r, err := s.remoteRoute(token, now)
 	if err != nil {
 		return Remote{}, err
 	}
-	return s.remoteView(link, r, now), nil
+	return s.remoteView(acc, r, now), nil
 }
 
-func (s *Service) remoteView(link store.RemoteLink, r *route, now time.Time) Remote {
+func (s *Service) remoteView(acc remoteAccess, r *route, now time.Time) Remote {
 	state := r.flow.State(r.bot.CurrentState)
 	v := Remote{
-		Owner:   link.Name,
+		Owner:   acc.name,
 		Bot:     r.bot.Name,
 		State:   RemoteState{ID: state.ID, Name: state.Name},
 		Buttons: []RemoteButton{},
@@ -221,11 +333,11 @@ func (s *Service) remoteView(link store.RemoteLink, r *route, now time.Time) Rem
 	}
 	for _, st := range r.flow.States {
 		for i, o := range st.Options {
-			b := RemoteButton{State: st.ID, Option: i, Label: o.Label, Enabled: st.ID == state.ID}
+			b := RemoteButton{State: st.ID, Option: i, Label: o.Label, Enabled: st.ID == state.ID && !acc.lastChance}
 			switch {
 			case o.Command != "":
 				v.Buttons = append(v.Buttons, b)
-			case b.Enabled:
+			case st.ID == state.ID && !acc.lastChance:
 				v.Fixes = append(v.Fixes, b)
 			}
 		}
@@ -235,7 +347,22 @@ func (s *Service) remoteView(link store.RemoteLink, r *route, now time.Time) Rem
 			v.Retry = &RemoteButton{State: sent.state, Option: sent.option, Label: o.Label, Enabled: true}
 		}
 	}
+	if acc.pass != nil {
+		v.Access = passAccess(*acc.pass, acc.lastChance)
+	}
 	return v
+}
+
+// passAccess is what the holder of a temporary access is told about it.
+func passAccess(p store.RemotePass, lastChance bool) *RemoteAccess {
+	a := &RemoteAccess{UsesLeft: p.UsesLeft(), ExpiresAt: p.ExpiresAt}
+	if len(p.Schedule.Windows) > 0 {
+		a.Schedule = p.Schedule.Describe()
+	}
+	if lastChance {
+		a.Note = "Os usos deste acesso acabaram."
+	}
+	return a
 }
 
 // leadsTo is the state the bot is in after the option o of the state from.
@@ -257,14 +384,17 @@ func (s *Service) RemoteAct(token, stateID string, option int, retry bool) (Remo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	link, r, err := s.remoteRoute(token, now)
+	acc, r, err := s.remoteRoute(token, now)
 	if err != nil {
 		return Remote{}, err
+	}
+	if acc.lastChance && !retry {
+		return Remote{}, &RemoteLocked{Reason: "Os usos deste acesso acabaram.", Permanent: true}
 	}
 	state := r.flow.State(r.bot.CurrentState)
 	opt, ok := r.flow.Option(stateID, option)
 	if !ok {
-		return s.remoteView(link, r, now), ErrRemoteStale
+		return s.remoteView(acc, r, now), ErrRemoteStale
 	}
 
 	attempts := 1
@@ -275,17 +405,35 @@ func (s *Service) RemoteAct(token, stateID string, option int, retry bool) (Remo
 		sent, ok := s.remoteSent[r.bot.ID]
 		if !ok || sent.state != stateID || sent.option != option || now.Sub(sent.at) >= retryWindow ||
 			opt.Command == "" || leadsTo(opt, stateID) != state.ID {
-			return s.remoteView(link, r, now), ErrRemoteStale
+			return s.remoteView(acc, r, now), ErrRemoteStale
 		}
 		attempts = sent.attempts + 1
 	} else if stateID != state.ID {
 		// Someone else changed the state since the page was drawn.
-		return s.remoteView(link, r, now), ErrRemoteStale
+		return s.remoteView(acc, r, now), ErrRemoteStale
 	}
 
 	if opt.Command != "" {
+		// A temporary access pays for each new command with one of its uses;
+		// sending it again after it failed to arrive is free.
+		claimed := false
+		if acc.pass != nil && !retry {
+			ok, err := s.store.ClaimPassUse(acc.pass.ID)
+			if err != nil {
+				return Remote{}, err
+			}
+			if !ok {
+				return Remote{}, &RemoteLocked{Reason: "Os usos deste acesso acabaram.", Permanent: true}
+			}
+			claimed = true
+		}
 		if err := s.publish(r, opt.Command); err != nil {
-			log.Printf("bot %q: web remote of %s: %v", r.bot.Name, link.Phone, err)
+			log.Printf("bot %q: web remote of %s: %v", r.bot.Name, acc.name, err)
+			if claimed {
+				if err := s.store.ReleasePassUse(acc.pass.ID); err != nil {
+					log.Printf("bot %q: give back a use of %q: %v", r.bot.Name, acc.name, err)
+				}
+			}
 			return Remote{}, ErrRemoteDevice
 		}
 		s.remoteSent[r.bot.ID] = remoteSent{state: stateID, option: option, attempts: attempts, at: now}
@@ -296,7 +444,7 @@ func (s *Service) RemoteAct(token, stateID string, option int, retry bool) (Remo
 		if err := s.store.SetBotState(r.bot.ID, next); err != nil {
 			return Remote{}, err
 		}
-		log.Printf("bot %q: state %s -> %s (web remote of %s)", r.bot.Name, r.bot.CurrentState, next, link.Phone)
+		log.Printf("bot %q: state %s -> %s (web remote of %s)", r.bot.Name, r.bot.CurrentState, next, acc.name)
 		r.bot.CurrentState = next
 	}
 	current := r.flow.State(r.bot.CurrentState)
@@ -306,8 +454,18 @@ func (s *Service) RemoteAct(token, stateID string, option int, retry bool) (Remo
 		action = fmt.Sprintf("%s (tentativa %d)", opt.Label, attempts)
 	}
 	use := store.RemoteUse{Action: action, Command: opt.Command, State: current.Name, At: now}
-	if err := s.store.LogRemoteUse(link, use); err != nil {
-		log.Printf("bot %q: record web remote use of %s: %v", r.bot.Name, link.Phone, err)
+	var logErr error
+	if acc.pass != nil {
+		logErr = s.store.LogPassUse(*acc.pass, use)
+		// Show the uses left after this one.
+		if fresh, err := s.store.PassByToken(token); err == nil {
+			acc.pass = &fresh
+		}
+	} else {
+		logErr = s.store.LogRemoteUse(acc.link, use)
 	}
-	return s.remoteView(link, r, now), nil
+	if logErr != nil {
+		log.Printf("bot %q: record web remote use of %s: %v", r.bot.Name, acc.name, logErr)
+	}
+	return s.remoteView(acc, r, now), nil
 }

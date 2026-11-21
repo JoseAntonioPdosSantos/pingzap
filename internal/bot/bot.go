@@ -115,6 +115,10 @@ type savedConversation struct {
 	flow.Conversation
 }
 
+// PublicURL is the address people reach the web interface at, without a
+// trailing slash; empty when it was not configured.
+func (s *Service) PublicURL() string { return s.publicURL }
+
 // New creates the service; metrics may be nil. publicURL is the address of
 // the web interface as people reach it; empty turns the web remote off.
 func New(st *store.Store, mq MQTT, wa Sender, metrics Metrics, publicURL string) *Service {

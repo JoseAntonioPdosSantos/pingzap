@@ -118,6 +118,28 @@ botões.
   publique o pingzap atrás de **HTTPS**, para o código do link não trafegar
   em claro.
 
+#### Acessos temporários
+
+Para quem não está nos chats do bot (visita, faxineira, entregador), o editor
+do bot tem **Acessos temporários**: escolha um modelo ou preencha o
+formulário e copie o link para enviar você mesmo. Cada acesso tem:
+
+- **Validade**: início opcional e data e hora de expiração.
+- **Limite de usos**: quantos comandos ele pode enviar (`0` = sem limite). Com
+  `2` a pessoa abre uma vez e fecha uma vez, e então o acesso acaba. Enviar de
+  novo o comando que acabou de mandar (o botão "não funcionou?") não gasta
+  uso; um comando que não chegou ao dispositivo também não conta.
+- **Dias e horários**: quantas faixas quiser (dias da semana + hora inicial e
+  final, no fuso do seu navegador; fim antes do início atravessa a
+  meia-noite). Fora delas o link mostra quando volta a abrir e passa a
+  funcionar sozinho na hora certa.
+
+Os cartões mostram o estado (ativo, fora do horário, expirado, usos
+esgotados), os usos em bolinhas, a expiração e a semana. Um acesso expirado ou
+esgotado pode ser renovado em **Renovar / editar** (marque *zerar a contagem
+de usos*) e mantém o mesmo link; **revogar** encerra de vez. Os usos ficam
+registrados no nome do acesso e nada é enviado ao WhatsApp.
+
 ### Regras dos bots de alerta
 
 - Uma mensagem de um contato ou grupo do bot publica o comando de ligar (`ON`

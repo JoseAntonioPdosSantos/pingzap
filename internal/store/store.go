@@ -93,6 +93,20 @@ CREATE TABLE IF NOT EXISTS remote_links (
 	uses       INTEGER NOT NULL DEFAULT 0,
 	UNIQUE (bot_id, phone)
 );
+CREATE TABLE IF NOT EXISTS remote_passes (
+	id         INTEGER PRIMARY KEY,
+	bot_id     INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+	name       TEXT NOT NULL,
+	token      TEXT NOT NULL UNIQUE,
+	created_at INTEGER NOT NULL,
+	starts_at  INTEGER NOT NULL DEFAULT 0,
+	expires_at INTEGER NOT NULL DEFAULT 0,
+	last_used  INTEGER NOT NULL DEFAULT 0,
+	max_uses   INTEGER NOT NULL DEFAULT 0,
+	uses       INTEGER NOT NULL DEFAULT 0,
+	timezone   TEXT NOT NULL DEFAULT 'UTC',
+	schedule   TEXT NOT NULL DEFAULT '{"windows":[]}'
+);
 CREATE TABLE IF NOT EXISTS remote_uses (
 	id      INTEGER PRIMARY KEY,
 	bot_id  INTEGER NOT NULL REFERENCES bots(id) ON DELETE CASCADE,

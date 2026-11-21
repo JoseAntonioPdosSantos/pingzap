@@ -63,7 +63,37 @@ export type RemoteLink = {
   uses: number
 }
 export type RemoteUse = { phone: string; name: string; action: string; command: string; state: string; at: string }
-export type BotRemote = { links: RemoteLink[]; uses: RemoteUse[] }
+export type PassWindow = { days: number[]; start: string; end: string }
+export type PassStatus = 'active' | 'scheduled' | 'outside' | 'expired' | 'used_up'
+// A temporary access, made in the interface for someone outside the chats.
+export type RemotePass = {
+  id: number
+  name: string
+  // Full link when the public address is set; otherwise only the path.
+  url: string
+  path: string
+  created_at: string
+  starts_at?: string
+  expires_at?: string
+  last_used?: string
+  max_uses: number // 0 = no limit
+  uses: number
+  uses_left: number // -1 = no limit
+  timezone: string
+  schedule: { windows: PassWindow[] }
+  status: PassStatus
+  status_text: string
+}
+export type PassInput = {
+  name: string
+  starts_at: string | null
+  expires_at: string | null
+  max_uses: number
+  timezone: string
+  schedule: { windows: PassWindow[] }
+  reset_uses?: boolean
+}
+export type BotRemote = { links: RemoteLink[]; uses: RemoteUse[]; passes: RemotePass[] }
 
 export type WhatsAppState = 'disconnected' | 'connecting' | 'pairing' | 'connected'
 export type WhatsAppStatus = { state: WhatsAppState; phone: string; qr_image?: string }

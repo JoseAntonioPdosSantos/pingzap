@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import PassesPanel from './Passes'
 import {
   api,
   errorMessage,
@@ -84,7 +85,10 @@ export default function BotEditor() {
     }
   }
 
+  // The access panels have forms of their own, and forms can not be nested:
+  // they stay outside the bot's form, after it.
   return (
+    <>
     <form onSubmit={save}>
       <div className="section-head">
         <h2>{isNew ? 'Novo bot' : bot.name}</h2>
@@ -153,12 +157,14 @@ export default function BotEditor() {
         <AlertEditor config={bot.config as AlertConfig} onChange={(config) => update({ config })} />
       )}
 
-      {!isNew && bot.kind === 'flow' && <RemotePanel botId={bot.id} />}
-
       {!isNew && (
         <p className="muted">Salvar reinicia as conversas em andamento deste bot.</p>
       )}
     </form>
+
+    {!isNew && bot.kind === 'flow' && <PassesPanel botId={bot.id} />}
+    {!isNew && bot.kind === 'flow' && <RemotePanel botId={bot.id} />}
+    </>
   )
 }
 
@@ -633,7 +639,7 @@ function RemotePanel({ botId }: { botId: number }) {
                   <tr key={i}>
                     <td>{dateTime(u.at)}</td>
                     <td>
-                      {u.name} <span className="muted">+{u.phone}</span>
+                      {u.name} <span className="muted">{u.phone ? `+${u.phone}` : 'acesso temporário'}</span>
                     </td>
                     <td>{u.action}</td>
                     <td>{u.state}</td>
